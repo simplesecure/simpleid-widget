@@ -1,26 +1,34 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React from 'reactn';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import './assets/css/theme.css';
+import './assets/css/loader-pulse.css';
+import './assets/css/styles.css';
+// import Token from './components/Token';
+// import Email from './components/Email';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import Auth from './containers/Auth';
+import Approve from './containers/Approve';
+import Modal from 'react-bootstrap/Modal';
 
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+export default class App extends React.Component {
+
+  render() {
+    const { auth } = this.global;
+    return (
+      <Modal show={true}>
+        <Header />
+        <Modal.Body>
+          {
+            auth ? 
+            <Auth /> : 
+            <Approve />
+          }
+        </Modal.Body>
+        <Modal.Footer>
+          <Footer /> 
+        </Modal.Footer>
+      </Modal>
+    )
+  }
 }
-
-export default App;
