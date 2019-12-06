@@ -50,3 +50,7 @@
   cursor: pointer;
   color: #0000EE;
 }
+
+.error-message {
+  margin-top: 15px;
+}

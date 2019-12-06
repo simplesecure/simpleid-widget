@@ -1,7 +1,7 @@
 import React, { setGlobal } from 'reactn';
 import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
-import { signIn, approveSignIn } from '../actions/postMessage';
+import { signIn, approveSignIn, handlePassword } from '../actions/postMessage';
 
 export default class Auth extends React.Component {
   handleEmail = (e) => {
@@ -9,6 +9,9 @@ export default class Auth extends React.Component {
   }
   handleCode = (e) => {
     setGlobal({ token: e.target.value });
+  }
+  handlePassword = (e, encrypt) => {
+    setGlobal({ password: e.target.value, encrypt });
   }
   render() {
     const { config, action } = this.global;
@@ -33,7 +36,34 @@ export default class Auth extends React.Component {
             <div className="loader">
               <div className="loading-animation"></div>
             </div>
-          </div> : 
+          </div> :
+          action === "enter-new-password" ?
+          <div>
+            <h5>You'll need a password to protect your account</h5>
+            <p>Your password will never be revealed or stored, so it's important that you keep this somewhere safe. You will not be able to recovery your account without your password.</p>
+            <Form onSubmit={handlePassword}>
+              <Form.Group controlId="formBasicEmail">
+                <Form.Control onChange={(e) => this.handlePassword(e, "auth")} type="password" placeholder="Your password" />
+              </Form.Group>              
+              <Button variant="primary" type="submit">
+                Next
+              </Button>
+            </Form>
+          </div> :
+          action === "enter-password" ?
+          <div>
+            <h5>Enter your password to continue</h5>
+            <p>Your password will never be revealed or stored.</p>
+            <Form onSubmit={(e) => handlePassword(e, "auth")}>
+              <Form.Group controlId="formBasicEmail">
+                <Form.Control onChange={this.handlePassword} type="password" placeholder="Your password" />
+              </Form.Group>              
+              <Button variant="primary" type="submit">
+                Next
+              </Button>
+            </Form>
+          </div> 
+          : 
           <div>
             <h5>{config.appName} is protecting you with <mark>SimpleID</mark></h5> 
             <p>The following information will be provided to the application if you log in: </p>
@@ -51,9 +81,9 @@ export default class Auth extends React.Component {
               <Form.Group controlId="formBasicEmail">
                 <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />
               </Form.Group>
-              <Form.Text className="text-muted bottom-10">
+              {/*<Form.Text className="text-muted bottom-10">
                 A one-time code will be emailed to you.
-              </Form.Text>
+              </Form.Text>*/}
               <Button variant="primary" type="submit">
                 Continue
               </Button>

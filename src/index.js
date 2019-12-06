@@ -14,7 +14,8 @@ const connection = connectToParent({
 
 connection.promise.then(parent => {
   parent.checkAction().then((action) => {
-    setGlobal({ action });
+    console.log(action);
+    setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
   });
   parent.getConfig().then((config) => {
     setGlobal({ config });
@@ -28,7 +29,13 @@ setGlobal({
   pendingToken: false, 
   config: {}, 
   email: "",
-  token: ""
+  token: "", 
+  password: "", 
+  keychain: {}, 
+  encrypt: false, 
+  txDetails: {}, 
+  error: "", 
+  subaction: ""
 })
 
 ReactDOM.render(<App />, document.getElementById('root'));

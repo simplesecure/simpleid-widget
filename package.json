@@ -4,15 +4,19 @@
   "private": true,
   "dependencies": {
     "bootstrap": "^4.3.1",
+    "crypto-js": "^3.1.9-1",
+    "ethereumjs-tx": "^2.1.1",
+    "ethers": "^4.0.40",
     "penpal": "^4.1.1",
     "react": "^16.12.0",
     "react-bootstrap": "^1.0.0-beta.16",
     "react-dom": "^16.12.0",
     "react-scripts": "3.2.0",
-    "reactn": "^2.2.4"
+    "reactn": "^2.2.4",
+    "web3": "^1.2.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "PORT=3003 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
