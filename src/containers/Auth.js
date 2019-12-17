@@ -41,9 +41,9 @@ export default class Auth extends React.Component {
           <div>
             <h5>You'll need a password to protect your account</h5>
             <p>Your password will never be revealed or stored, so it's important that you keep this somewhere safe. You will not be able to recovery your account without your password.</p>
-            <Form onSubmit={handlePassword}>
+            <Form onSubmit={(e) => handlePassword(e, "new-auth")}>
               <Form.Group controlId="formBasicEmail">
-                <Form.Control onChange={(e) => this.handlePassword(e, "auth")} type="password" placeholder="Your password" />
+                <Form.Control onChange={this.handlePassword} type="password" placeholder="Your password" />
               </Form.Group>              
               <Button variant="primary" type="submit">
                 Next

@@ -31,10 +31,10 @@ export default class Approve extends React.Component {
     //console.log("THE FEE: ", ethers.utils.formatEther(gasFee));
   }
 
-  submitPassword = async () => {
-    const { txDetails, config, subaction } = this.global;
+  submitPassword = async (e) => {
+    const { txDetails, config, subaction, type } = this.global;
     const { gasFee } = this.state;
-    const keychain = await handlePassword('tx');
+    const keychain = await handlePassword(e, 'tx');
     const parsedKeychain = JSON.parse(keychain.toString(CryptoJS.enc.Utf8));
     const address = parsedKeychain.signingKey.address;
     const provider = ethers.getDefaultProvider(config.network);
@@ -58,16 +58,19 @@ export default class Approve extends React.Component {
         if(parsedKeychain.signingKey) {
           //Let's broadcast this transaction!
           setGlobal({ action: "loading" });
+          txDetails.tx["nonce"] = await provider.getTransactionCount(address);
+          console.log("TXDETAILS: ", txDetails.tx)
           //Now sign the tx
-          const txx = new Tx(txDetails.tx, {chain: config.network, hardfork: 'petersburg'})
+          let txx = new Tx(txDetails.tx, {chain: config.network })
           const privateKey = Buffer.from(parsedKeychain.signingKey.keyPair.privateKey.substring(2), 'hex');
           //console.log(privateKey);
           txx.sign(privateKey);
-          const sTx =txx.serialize();
+          const sTx = txx.serialize();
+          //console.log("STX: ", sTx);
           //Send the transaction  
           const balance = await provider.getBalance(address);
           const etherBalance = ethers.utils.formatEther(balance);
-          const fee = ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString())
+          const fee = txDetails && txDetails.tx && txDetails.tx.value ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : "0";
           if(fee > etherBalance) {
             setGlobal({ action: "subaction", error: "Insufficient funds. Please make sure you have enough ether for this action.", password: "" })
           } else {
@@ -76,10 +79,51 @@ export default class Approve extends React.Component {
             if(totalFee > etherBalance) {
               setGlobal({ subaction: "", error: "Insufficient funds. Please make sure you have enough ether for this action.", password: "" })
             } else {
-              web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'));
-              const hash = `0x${txx.hash().toString('hex')}`;
-              console.log(hash);
-              handleHash(hash);
+              try {
+                if(type === "eth_signTransaction") {
+                  handleHash('0x' + sTx.toString('hex'));
+                } else {
+                  //handleHash('0x' + sTx.toString('hex'));
+                  web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'))
+                  .on('transactionHash', (hash) => {
+                    console.log("Yo yo yo: ", hash);
+                    handleHash(hash);
+                  })
+                  // .on('receipt', (receipt) => {
+                  //   console.log("Bam Bam Bam: ", receipt);
+                  //   handleHash(receipt);
+                  //   // setTimeout(() => {
+                  //   //   console.log("Sending...");
+                  //   //   //console.log(sent);
+                  //   //   //const hash = `0x${txx.hash().toString('hex')}`; 
+                  //   //   //console.log(hash);               
+                  //   //   handleHash(receipt);
+                  //   // }, 1500)
+                  // })                                 
+                }                
+                // web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'));
+                //   setTimeout(() => {
+                //     console.log("Sending...");
+                //     //console.log(sent);
+                //     //const hash = `0x${txx.hash().toString('hex')}`; 
+                //     //console.log(hash);               
+                //     handleHash(JSON.stringify(txx));
+                //   }, 1500)
+                // if(type === "eth_signTransaction") {
+                //   handleHash(sTx);
+                // } else {
+                //   web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'));
+                //   setTimeout(() => {
+                //     console.log("Sending...");
+                //     //console.log(sent);
+                //     //const hash = `0x${txx.hash().toString('hex')}`; 
+                //     //console.log(hash);               
+                //     handleHash(JSON.stringify(txx));
+                //   }, 1500)
+                // }
+              } catch(e) {
+                console.log("TX ERROR: ", e);
+              }              
             }
           }
         } else {
@@ -87,8 +131,8 @@ export default class Approve extends React.Component {
           console.log("Error")
           setGlobal({ error: "Please verify your password is correct", password: "" });
         }
-      } catch (e) {
-        console.log(e);
+      } catch(err) {
+        console.log("ERROR ", err);
         setGlobal({ subaction: "", error: "Please verify your password is correct", password: "" });
       }
     }
@@ -133,7 +177,11 @@ export default class Approve extends React.Component {
               <h5>Approve Action?</h5>
               <div className="text-left">
               <p>App: <mark>{txDetails.appName}</mark></p>
-              <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>
+              {
+                txDetails && txDetails.tx && txDetails.tx.value ? 
+                <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>: 
+                <p></p>
+              }
               <p>Est. Fee (in eth): <mark>{ethers.utils.formatEther(gasFee)}</mark></p>
               {
                 subaction === "approve-tx" ? 

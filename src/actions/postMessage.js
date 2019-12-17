@@ -30,12 +30,11 @@ export async function signIn() {
   connection.promise.then((parent) => {
     //checkDB
     parent.fetchUser(email).then((res) => {
-      console.log(res);
       if(res.success === true) {
         //user found and encrypted keychain returned
         //decrypt later with with user's password
         //store encrypted keychain in localStorage
-        const userKeychain = res.body;
+        const userKeychain = res.body.Item.encryptedKeychain;
         localStorage.setItem(WIDGET_KEYCHAIN, JSON.stringify(userKeychain));
         setGlobal({ auth: true, action: "enter-password" });
       } else {
@@ -46,12 +45,14 @@ export async function signIn() {
   }).catch(e => console.log(e));
 }
 
-export async function handlePassword(type) {
-  setGlobal({ auth: type === "auth" ? true : false, action: "loading" });
-  const { password, encrypt, keychain, email } = getGlobal();
-  if(encrypt) {
+export async function handlePassword(e, actionType) {
+  setGlobal({ auth: actionType === "auth" ? true : false, action: "loading" });
+  const { password, keychain, email } = getGlobal();
+  if(actionType === "new-auth") {
     //we are encrypting the keychain and storing on the db
     const encryptedKeychain = CryptoJS.AES.encrypt(JSON.stringify(keychain), password);
+    // const decryptedKeychain = CryptoJS.AES.decrypt(encryptedKeychain.toString(), password);
+    // console.log("DECRYPTED: ", decryptedKeychain.toString(CryptoJS.enc.Utf8));
     localStorage.setItem(WIDGET_KEYCHAIN, encryptedKeychain.toString());
     const payload = {
       email, 
@@ -70,8 +71,6 @@ export async function handlePassword(type) {
         if(res.success) {
           //Keychain has been saved. 
           //Store wallet address for retreival client-side
-          console.log("FULL KEYCHAIN", keychain)
-          console.log("SIGNING KEY", keychain.signingKey);
           const userData = {
             email, 
             wallet: {
@@ -89,11 +88,37 @@ export async function handlePassword(type) {
   } else {
     const encryptedKeychain = localStorage.getItem(WIDGET_KEYCHAIN);
     //we have fetched the encrypted keychain and need to decrypt
-    const decryptedKeychain = CryptoJS.AES.decrypt(encryptedKeychain, password);
-    setGlobal({ keychain: decryptedKeychain });
-    if(type === "auth") {
-      closeWidget(true);
-    } else if(type === "tx") {
+    let eKcp = undefined
+    try {
+      eKcp = JSON.parse(encryptedKeychain)
+    } catch (error) {
+      console.log(error);
+    }
+    const decryptedKeychain = CryptoJS.AES.decrypt(eKcp, password);
+    const parsedDecKeyChain = JSON.parse(decryptedKeychain.toString(CryptoJS.enc.Utf8));
+    //console.log("DECRYPTED KEYCHAIN: ", JSON.parse(decryptedKeychain.toString(CryptoJS.enc.Utf8)));
+    setGlobal({ keychain: parsedDecKeyChain });
+    if(actionType === "auth") {
+      const connection = connectToParent({
+        // Methods child is exposing to parent
+        methods: {
+          //
+        }
+      });
+
+      connection.promise.then(parent => {
+        const userData = {
+          email, 
+          wallet: {
+            ethAddr: parsedDecKeyChain.signingKey.address
+          }
+        }
+
+        parent.storeWallet(JSON.stringify(userData)).then((res) => {
+          closeWidget(true);
+        })        
+      });
+    } else if(actionType === "tx") {
       return decryptedKeychain
     }
   }
@@ -138,7 +163,6 @@ export async function getTxDetails() {
   
   connection.promise.then(parent => {
     parent.getPopUpInfo().then((res) => {
-      console.log("TX: ", res)
       setGlobal({ txDetails: res });
     });
   });
@@ -160,6 +184,7 @@ export function handleHash(hash) {
 }
 
 export function returnSignedMessage(signedMsg) {
+  console.log("SIGNED MESSAGE FROM IFRAME");
   const connection = connectToParent({
     // Methods child is exposing to parent
     methods: {

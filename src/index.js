@@ -20,6 +20,11 @@ connection.promise.then(parent => {
   parent.getConfig().then((config) => {
     setGlobal({ config });
   });
+
+  parent.checkType().then((type) => {
+    console.log("TYPE: ", type)
+    setGlobal({ type });
+  })
 });
 
 setGlobal({
@@ -35,7 +40,8 @@ setGlobal({
   encrypt: false, 
   txDetails: {}, 
   error: "", 
-  subaction: ""
+  subaction: "",
+  type: ""
 })
 
 ReactDOM.render(<App />, document.getElementById('root'));
