@@ -1,8 +1,13 @@
 import connectToParent from 'penpal/lib/connectToParent';
+import { SidServices } from '../utils/sidServices'
 import { getGlobal, setGlobal } from 'reactn';
 const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
+
+const JUSTIN_FLOW = false
+
+const ss = new SidServices()
 
 export function closeWidget(close) {
   const connection = connectToParent({
@@ -11,38 +16,62 @@ export function closeWidget(close) {
       //
     }
   });
-  
+
   connection.promise.then(parent => {
     parent.close(close).then(() => console.log("Closed"));
   });
 }
 
 export async function signIn() {
-  setGlobal({ auth: true, action: "loading" });
-  const { email } = await getGlobal();
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
-  
-  connection.promise.then((parent) => {
-    //checkDB
-    parent.fetchUser(email).then((res) => {
-      if(res.success === true) {
-        //user found and encrypted keychain returned
-        //decrypt later with with user's password
-        //store encrypted keychain in localStorage
-        const userKeychain = res.body.Item.encryptedKeychain;
-        localStorage.setItem(WIDGET_KEYCHAIN, JSON.stringify(userKeychain));
-        setGlobal({ auth: true, action: "enter-password" });
-      } else {
-        //No user found, create new keychain
-        generateKeychain();
+  const FN = 'simpleid-widget::signIn'
+  console.log(`DBG: ${FN}`)
+  console.log('DBG: ---------------------------------------------------------------')
+
+  if (!JUSTIN_FLOW) {  // New AC Flow
+    setGlobal({ auth: true, action: "loading" });
+    const { email } = await getGlobal();
+    const connection = connectToParent({
+      // Methods child is exposing to parent
+      methods: {
+        //
       }
-    })
-  }).catch(e => console.log(e));
+    });
+
+    console.log(`DBG: ${FN} setting auth true, action loading`)
+    console.log(`DBG: ${FN} fetched email = ${email}`)
+
+    console.log(`DBG: ${FN} calling SimpleID Services Sign In or Up ...`)
+    await ss.signInOrUp(email)
+    console.log(`DBG: ${FN} call succeeded.`)
+    setGlobal({ auth: true, action: 'sign-in-approval' })
+    console.log(`DBG: ${FN} setting auth true, action sign-in-approval`)
+  } else {  // Original Justin Flow
+    setGlobal({ auth: true, action: "loading" });
+    const { email } = await getGlobal();
+    const connection = connectToParent({
+      // Methods child is exposing to parent
+      methods: {
+        //
+      }
+    });
+
+    connection.promise.then((parent) => {
+      //checkDB
+      parent.fetchUser(email).then((res) => {
+        if(res.success === true) {
+          //user found and encrypted keychain returned
+          //decrypt later with with user's password
+          //store encrypted keychain in localStorage
+          const userKeychain = res.body.Item.encryptedKeychain;
+          localStorage.setItem(WIDGET_KEYCHAIN, JSON.stringify(userKeychain));
+          setGlobal({ auth: true, action: "enter-password" });
+        } else {
+          //No user found, create new keychain
+          generateKeychain();
+        }
+      })
+    }).catch(e => console.log(e));
+  }
 }
 
 export async function handlePassword(e, actionType) {
@@ -55,7 +84,7 @@ export async function handlePassword(e, actionType) {
     // console.log("DECRYPTED: ", decryptedKeychain.toString(CryptoJS.enc.Utf8));
     localStorage.setItem(WIDGET_KEYCHAIN, encryptedKeychain.toString());
     const payload = {
-      email, 
+      email,
       encryptedKeychain: encryptedKeychain.toString()
     }
     //now we fire this off to the db
@@ -65,14 +94,14 @@ export async function handlePassword(e, actionType) {
         //
       }
     });
-    
+
     connection.promise.then(parent => {
       parent.storeKeychain(JSON.stringify(payload)).then((res) => {
         if(res.success) {
-          //Keychain has been saved. 
+          //Keychain has been saved.
           //Store wallet address for retreival client-side
           const userData = {
-            email, 
+            email,
             wallet: {
               ethAddr: keychain.address
             }
@@ -108,7 +137,7 @@ export async function handlePassword(e, actionType) {
 
       connection.promise.then(parent => {
         const userData = {
-          email, 
+          email,
           wallet: {
             ethAddr: parsedDecKeyChain.signingKey.address
           }
@@ -116,7 +145,7 @@ export async function handlePassword(e, actionType) {
 
         parent.storeWallet(JSON.stringify(userData)).then((res) => {
           closeWidget(true);
-        })        
+        })
       });
     } else if(actionType === "tx") {
       return decryptedKeychain
@@ -125,25 +154,63 @@ export async function handlePassword(e, actionType) {
 }
 
 export async function approveSignIn() {
-  setGlobal({ auth: true, action: "loading" });
-  const { email, token } = await getGlobal();
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
-  
-  connection.promise.then(parent => {
-    parent.signIn({email, token}).then((res) => {
-      if(res === true) {
-        console.log("Success");
-        closeWidget(true)
-      } else {
-        console.log("Failed");
+  const FN = 'simpleid-widget::approveSignIn'
+  console.log(`DBG: ${FN}`)
+  console.log('DBG: ---------------------------------------------------------------')
+
+  if (!JUSTIN_FLOW) { // New AC Flow
+    // setGlobal({ auth: true, action: "loading" });
+    const { email, token } = await getGlobal();
+    const connection = connectToParent({
+      // Methods child is exposing to parent
+      methods: {
+        //
       }
     });
-  });
+
+    console.log(`DBG: ${FN} setting auth true, action loading`)
+    console.log(`DBG: ${FN} fetched email = ${email}`)
+    console.log(`DBG: ${FN} fetched token = ${token}`)
+
+    console.log(`DBG: ${FN} answering custom challenge with token:`)
+    let authenticatedUser = false
+    try {
+      authenticatedUser = await ss.answerCustomChallenge(token)
+    } catch (error) {
+      // TODO: Cognito gives 3 shots at this
+      // throw `ERROR: Failed trying to submit or match the code.\n${error}`
+      console.log(`ERROR: Failed trying to submit or match the code.\n${error}`)
+    }
+    if (authenticatedUser) {
+      console.log(`DBG: ${FN} succeeded!`)
+      console.log(`DBG: ${FN} closing widget.`)
+      closeWidget(true)
+    } else {
+      console.log(`DBG: ${FN} failed!`)
+      setGlobal({ auth: true, action: 'sign-in-approval' })
+      console.log(`DBG: ${FN} setting auth true, action sign-in-approval`)
+    }
+  } else {
+    setGlobal({ auth: true, action: "loading" });
+    const { email, token } = await getGlobal();
+    const connection = connectToParent({
+      // Methods child is exposing to parent
+      methods: {
+        //
+      }
+    });
+
+    connection.promise.then(parent => {
+      parent.signIn({email, token}).then((res) => {
+        if(res === true) {
+          console.log("Success");
+          closeWidget(true)
+        } else {
+          console.log("Failed");
+        }
+      });
+    });
+  }
 }
 
 export async function generateKeychain() {
@@ -160,7 +227,7 @@ export async function getTxDetails() {
       //
     }
   });
-  
+
   connection.promise.then(parent => {
     parent.getPopUpInfo().then((res) => {
       setGlobal({ txDetails: res });
@@ -175,7 +242,7 @@ export function handleHash(hash) {
       //
     }
   });
-  
+
   connection.promise.then(parent => {
     parent.displayHash(hash).then(() => {
       closeWidget(false);
@@ -191,11 +258,10 @@ export function returnSignedMessage(signedMsg) {
       //
     }
   });
-  
+
   connection.promise.then(parent => {
     parent.signedMessage(signedMsg).then(() => {
       closeWidget(false);
     })
   });
 }
-
