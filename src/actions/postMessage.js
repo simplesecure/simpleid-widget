@@ -179,7 +179,11 @@ export async function approveSignIn() {
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
-      console.log(`ERROR: Failed trying to submit or match the code.\n${error}`)
+      console.log(`ERROR: Failed trying to submit or match the code.\n`)
+      console.log(error)
+      console.log('  authenticatedUser')
+      console.log(authenticatedUser)
+      console.log()
     }
     if (authenticatedUser) {
       console.log(`DBG: ${FN} succeeded!`)

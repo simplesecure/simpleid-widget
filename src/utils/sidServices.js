@@ -52,8 +52,18 @@ export class SidServices
   // TODO: do we want to expand this to use phone numbers?
   // See: https://aws-amplify.github.io/docs/js/authentication#lambda-triggers for more error handling etc.
   signInOrUp = async (anEmail) => {
+    console.log('DBG: Forcing sign out ...')
+    try {
+      await Auth.signOut()
+      console.log('DBG: success')
+    } catch (error) {
+      console.log('DBG: failure')
+      console.log(error)
+    }
+
     try {
       this.cognitoUser = await Auth.signIn(anEmail)
+      console.log('DBG: sidServices::signIn succeeded.')
       return
     } catch (error) {
       if (error.code !== 'UserNotFoundException') {
@@ -82,7 +92,9 @@ export class SidServices
       }
 
       await Auth.signUp(params)
+      console.log('DBG: sidServices::signUp succeeded.')
       this.cognitoUser = await Auth.signIn(anEmail)
+      console.log('DBG: sidServices::signIn succeeded.')
     } catch (error) {
       throw `ERROR: Sign up attempt has failed.\n${error}`
     }
@@ -97,7 +109,28 @@ export class SidServices
   }
 
   answerCustomChallenge = async (anAnswer) => {
-    this.cognitoUser = await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
+    const FN = 'sidServices::answerCustomChallenge'
+    console.log(`DBG: ${FN}`)
+    console.log('DBG: ---------------------------------------------------------------')
+    console.log(`DBG: ${FN} this.cognitoUser:`)
+    console.log(this.cognitoUser)
+    console.log(`DBG: ${FN} answer:`)
+    console.log(anAnswer)
+    console.log(typeof anAnswer)
+    console.log(`DBG: Setting window log level to DEBUG from ${window.LOG_LEVEL}`)
+    window.LOG_LEVEL = 'DEBUG'
+    try {
+      console.log(`DBG: ${FN} Callign sendCustomChallengeAnswer:`)
+      AWS.config.maxRetries = 10
+      console.log(`DBG: ${FN} Set AWS maxRetries to ${AWS.config.maxRetries}:`)
+      this.cognitoUser = await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
+      console.log(`DBG: ${FN} succeeded`)
+    } catch (error) {
+      console.log(`DBG: ${FN} failed`)
+      console.log(error)
+      throw error
+    }
+    console.log('DBG: ${FN} after sending custom challenge answer this.cognitoUser:')
     return this.isAuthenticated()
   }
 
