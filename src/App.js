@@ -12,11 +12,6 @@ import Approve from './containers/Approve';
 import Modal from 'react-bootstrap/Modal';
 
 export default class App extends React.Component {
-
-  componentDidMount() {
-//
-  }
-
   componentWillUnmount() {
     setGlobal({
       auth: true,
@@ -37,17 +32,13 @@ export default class App extends React.Component {
 
   render() {
     const { auth } = this.global;
-    console.log(`DBG: simpleid-widget::App.js::render, auth=${auth}`)
+    const bodyElement = auth ? ( <Auth /> ) : ( <Approve /> )
 
     return (
       <Modal show={true}>
         <Header />
         <Modal.Body>
-          {
-            auth ?
-            <Auth /> :
-            <Approve />
-          }
+          { bodyElement }
         </Modal.Body>
         <Modal.Footer>
           <Footer />

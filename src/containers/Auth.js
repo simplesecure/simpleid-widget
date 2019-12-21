@@ -8,7 +8,6 @@ export default class Auth extends React.Component {
   //
   // Event Handlers
   //////////////////////////////////////////////////////////////////////////////
-
   handleEmail = (e) => {
     setGlobal({ email: e.target.value });
   }
@@ -25,7 +24,6 @@ export default class Auth extends React.Component {
   //
   // Renderers
   //////////////////////////////////////////////////////////////////////////////
-
   renderSignInApproval = () => {
     return (
       <div>
@@ -120,7 +118,6 @@ export default class Auth extends React.Component {
 
   render = () => {
     const { config, action } = this.global;
-    console.log(`DBG: simpleid-widget::Auth.js::render, action=${action}`)
 
     let containerElements = undefined
     switch (action) {

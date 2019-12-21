@@ -1,6 +1,5 @@
 import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
-import { CognitoUser } from 'amazon-cognito-identity-js'
 
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
@@ -22,18 +21,13 @@ Amplify.configure({
   Auth: amplifyAuthObj
 });
 
-console.log('Amplify configuration:')
-console.log('*****************************************************************')
-console.log(amplifyAuthObj)
-console.log()
-
-
 // TODO: move these to dynamo / lambda system in milestone 2
 const KEY_FARM_IDS = [
   '66d158b8-ecbd-4962-aedb-15d5dd4024ee',   // Key 0
   '2fe4d745-6685-4581-93ca-6fd7aff92426',   // Key 1
   'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
 ]
+
 
 export class SidServices
 {
@@ -45,27 +39,6 @@ export class SidServices
     this.keyId1 = undefined
     this.keyId2 = undefined
   }
-
-  // Psuedo code for sign in / up operations (TODO):
-  // 1. Test to see if new user or existing user, call signUp or signIn as
-  //    appropriate.
-  // 2. If signUp:
-  //    a) Call signUp and wait for code to be entered
-  //      - for now choose keys here as part of sign up, next milestone move those to lambda for immutability
-  //    b) When code is entered generate keychain
-  //    c) split keychain into secrets
-  //    d) encrypt two secrets using two different user KMS keys
-  //    e) store the two secrets in database (keyed to email?)
-  //    f) store the wallet address in another database
-  //    g) [next milestone] store a mapping from wallet to email in a database
-  //       accessible only to this developer (used for analytics) (AWS write only cognito)
-  // 3. If signIn:
-  //    a) Fetch encrypted secrets
-  //    b) Decrypt encrypted secrets
-  //    c) Merge into keychain
-  //    d) [next milestone] Analytics
-  //
-
 
   // TODO: do we want to expand this to use phone numbers?
   // See: https://aws-amplify.github.io/docs/js/authentication#lambda-triggers for more error handling etc.
@@ -86,16 +59,10 @@ export class SidServices
 
     try {
       this.cognitoUser = await Auth.signIn(anEmail)
-      console.log('DBG: sidServices::signIn succeeded.')
-
-      // Sign in specific operations
-      // 1. Fetch stored SSS
-      // 2. Reverse SSS
-      //
       return
     } catch (error) {
       if (error.code !== 'UserNotFoundException') {
-        throw `ERROR: Sign in attempt has failed.\n${error}`
+        throw Error(`ERROR: Sign in attempt has failed.\n${error}`)
       }
     }
 
@@ -103,7 +70,7 @@ export class SidServices
     // our user pool. Sign them up:
     try {
       // TODO: move this to dynamo / lambda system in milestone 2 (the max keys value so it's dynamic)
-      const MAX_KEYS = 3
+      const MAX_KEYS = KEY_FARM_IDS.length
 
       // TODO: - always ensure key selection isn't repeated (i.e. KFA1 !== KFA2)
       //       - consider using crypto's getRandomValues method as below
@@ -120,50 +87,38 @@ export class SidServices
       }
 
       await Auth.signUp(params)
-      console.log('DBG: sidServices::signUp succeeded.')
       this.cognitoUser = await Auth.signIn(anEmail)
-      console.log('DBG: sidServices::signIn succeeded.')
 
+      // Local state store items for sign-up process after successfully answering
+      // a challenge question:
       this.email = anEmail
       this.keyId1 = KEY_FARM_IDS[KFA1]
       this.keyId2 = KEY_FARM_IDS[KFA2]
       this.signUpUserOnConfirm = true
     } catch (error) {
-      throw `ERROR: Sign up attempt has failed.\n${error}`
+      throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
     }
   }
 
+  // TODO: what's the best thing to do here?
+  //         - clobber token and sign out
+  //         - block specific calling app
+  //
   signOut = async () => {
     try {
       await Auth.signOut()
     } catch (error) {
-      console.log(`ERROR: Signing out encounted an error.\n${error}`)
+      throw Error(`ERROR: Signing out encounted an error.\n${error}`)
     }
   }
 
   answerCustomChallenge = async (anAnswer) => {
-    const FN = 'sidServices::answerCustomChallenge'
-    console.log(`DBG: ${FN}`)
-    console.log('DBG: ---------------------------------------------------------------')
-    console.log(`DBG: ${FN} this.cognitoUser:`)
-    console.log(this.cognitoUser)
-    console.log(`DBG: ${FN} answer:`)
-    console.log(anAnswer)
-    console.log(typeof anAnswer)
-    console.log(`DBG: Setting window log level to DEBUG from ${window.LOG_LEVEL}`)
-    window.LOG_LEVEL = 'DEBUG'
     try {
-      console.log(`DBG: ${FN} Callign sendCustomChallengeAnswer:`)
-      AWS.config.maxRetries = 10
-      console.log(`DBG: ${FN} Set AWS maxRetries to ${AWS.config.maxRetries}:`)
       this.cognitoUser = await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
-      console.log(`DBG: ${FN} succeeded`)
     } catch (error) {
-      console.log(`DBG: ${FN} failed`)
-      console.log(error)
       throw error
     }
-    console.log('DBG: ${FN} after sending custom challenge answer this.cognitoUser:')
+
     const authenticated = await this.isAuthenticated()
 
     // TODO: refactor to better spot
@@ -171,7 +126,7 @@ export class SidServices
       try {
         // Sign Up specific operations:
         //  1. Generate keychain
-        const ethWallet = await ethers.Wallet.createRandom()
+        const ethWallet = ethers.Wallet.createRandom()
         // setGlobal({ keychain: newWallet });
 
         //  2. SSS
@@ -206,21 +161,16 @@ export class SidServices
         console.log(ethWallet)
         console.log('*******************************************************')
       } catch (error) {
-        throw `ERROR: signing up user after successfully answering customer challenge failed.\n${error}`
+        throw Error(`ERROR: signing up user after successfully answering customer challenge failed.\n${error}`)
       } finally {
         // For now abort the operation.
         // TODO: future, robust recovery process
         this.signUpUserOnConfirm = false
       }
     } else if (authenticated) {
-      console.log('DBG: Authenticated sign in flow, after successful challenge answer:')
-      console.log('------------------------------------------------------------------')
-
       // Sign in specific operations:
       // 1. Fetch the encrypted secrets from Dynamo
       const userData = await this.readFromDynamoWithIdpCredentials()
-      console.log('DBG: Success fetching user data from Dynamo:')
-      console.log(userData)
 
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       // TODO: -should these be Buffer.from()?
@@ -228,22 +178,22 @@ export class SidServices
         await this.decryptKeyAssignmentWithIdpCredentials(userData.Item.secretCipherText1)
       const secretPlainText2 =
         await this.decryptKeyAssignmentWithIdpCredentials(userData.Item.secretCipherText2)
-      console.log('DBG: Success decrypting secret cipher texts 1 & 2.')
-      console.log('DBG: secretPlainText1 =')
-      console.log(secretPlainText1)
-      console.log('DBG: secretPlainText2 =')
-      console.log(secretPlainText2)
 
       // 3. Merge the secrets to recover the keychain
       const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
-      console.log('DBG: Success merging secrets:')
-      console.log('DBG: secretMnemonic =')
-      console.log(secretMnemonic)
-      console.log(secretMnemonic.toString())
 
       // 4. Inflate the wallet and persist it to state.
-      const ethWallet = ethers.Wallet.fromMnemonic(secretMnemonic.toString())
-      console.log('DBG: Success creating eth wallet')
+      const mnemonicStr = secretMnemonic.toString()
+      const ethWallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
+      // TODO: Justin solution to persist (local storage in encrypted state so
+      //       no need to hit AWS (faster, cheaper))
+      console.log('DBG: DELETE this comment after debugging / system ready')
+      console.log('*******************************************************')
+      console.log('Eth Wallet:')
+      console.log(ethWallet)
+      // console.log(`  mnemonic: ${mnemonicStr}`)
+      console.log(`  address: ${ethWallet.address}`)
+      console.log('*******************************************************')
     }
 
     return authenticated
@@ -379,7 +329,7 @@ export class SidServices
       id = AWS.config.credentials.identityId
       console.log(`Cognito Identity ID: ${id}`)
     } catch (error) {
-      throw `ERROR: getting credential id.\n${error}`
+      throw Error(`ERROR: getting credential id.\n${error}`)
     }
 
     let docClient = undefined
@@ -431,7 +381,7 @@ export class SidServices
       id = AWS.config.credentials.identityId
       console.log(`Cognito Identity ID: ${id}`)
     } catch (error) {
-      throw `ERROR: getting credential id.\n${error}`
+      throw Error(`ERROR: getting credential id.\n${error}`)
     }
 
     let docClient = undefined
@@ -511,7 +461,7 @@ export class SidServices
     const randomValues = new Uint8Array(numBytes)
     // TODO: any environments where window will not be available?
     if (!window) {
-      throw `ERROR: SID Services unable to access window.`
+      throw Error(`ERROR: SID Services unable to access window.`)
     }
     window.crypto.getRandomValues(randomValues)
     return Array.from(randomValues).map(SidServices._intToHex).join('');

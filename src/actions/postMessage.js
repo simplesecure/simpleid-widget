@@ -5,8 +5,7 @@ const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
 
-const JUSTIN_FLOW = false
-
+// TODO: this should get created in index.js and get binded to the iframe
 const ss = new SidServices()
 
 export function closeWidget(close) {
@@ -23,28 +22,11 @@ export function closeWidget(close) {
 }
 
 export async function signIn() {
-  const FN = 'simpleid-widget::signIn'
-  console.log(`DBG: ${FN}`)
-  console.log('DBG: ---------------------------------------------------------------')
-
-  if (!JUSTIN_FLOW) {  // New AC Flow
+  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     setGlobal({ auth: true, action: "loading" });
     const { email } = await getGlobal();
-    const connection = connectToParent({
-      // Methods child is exposing to parent
-      methods: {
-        //
-      }
-    });
-
-    console.log(`DBG: ${FN} setting auth true, action loading`)
-    console.log(`DBG: ${FN} fetched email = ${email}`)
-
-    console.log(`DBG: ${FN} calling SimpleID Services Sign In or Up ...`)
     await ss.signInOrUp(email)
-    console.log(`DBG: ${FN} call succeeded.`)
     setGlobal({ auth: true, action: 'sign-in-approval' })
-    console.log(`DBG: ${FN} setting auth true, action sign-in-approval`)
   } else {  // Original Justin Flow
     setGlobal({ auth: true, action: "loading" });
     const { email } = await getGlobal();
@@ -154,11 +136,7 @@ export async function handlePassword(e, actionType) {
 }
 
 export async function approveSignIn() {
-  const FN = 'simpleid-widget::approveSignIn'
-  console.log(`DBG: ${FN}`)
-  console.log('DBG: ---------------------------------------------------------------')
-
-  if (!JUSTIN_FLOW) { // New AC Flow
+  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     // WARNING:
     //  - Do not comment out the line below. For some reason, if you do
     //    the call to answerCustomChallenge will fail in the browser (the
@@ -166,39 +144,23 @@ export async function approveSignIn() {
     //    to understand this is browser optimizations within iFrames:
     //    https://stackoverflow.com/questions/12009423/what-does-status-canceled-for-a-resource-mean-in-chrome-developer-tools
     setGlobal({ auth: true, action: "loading" });
-    const { email, token } = await getGlobal();
-    const connection = connectToParent({
-      // Methods child is exposing to parent
-      methods: {
-        //
-      }
-    });
+    const { token } = await getGlobal();
 
-    console.log(`DBG: ${FN} setting auth true, action loading`)
-    console.log(`DBG: ${FN} fetched email = ${email}`)
-    console.log(`DBG: ${FN} fetched token = ${token}`)
-
-    console.log(`DBG: ${FN} answering custom challenge with token:`)
     let authenticatedUser = false
     try {
       authenticatedUser = await ss.answerCustomChallenge(token)
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
-      console.log(`ERROR: Failed trying to submit or match the code.\n`)
+      console.log(`ERROR: Failed trying to submit or match the code:\n`)
       console.log(error)
-      console.log('  authenticatedUser')
-      console.log(authenticatedUser)
-      console.log()
     }
     if (authenticatedUser) {
-      console.log(`DBG: ${FN} succeeded!`)
-      console.log(`DBG: ${FN} closing widget.`)
       closeWidget(true)
     } else {
-      console.log(`DBG: ${FN} failed!`)
+      // TODO: something more appropriate here (i.e. try to sign-in-approval again
+      //       which I think this should be doing, but it's not).
       setGlobal({ auth: true, action: 'sign-in-approval' })
-      console.log(`DBG: ${FN} setting auth true, action sign-in-approval`)
     }
   } else {
     setGlobal({ auth: true, action: "loading" });
