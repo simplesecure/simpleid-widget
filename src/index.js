@@ -14,32 +14,34 @@ const connection = connectToParent({
 
 connection.promise.then(parent => {
   parent.checkAction().then((action) => {
-    console.log(action);
+    console.log(`DBG: simpleid-widget::index.js::penpal::parent::checkAction action=${action}`);
     setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
   });
   parent.getConfig().then((config) => {
+    console.log(`DBG: simpleid-widget::index.js::penpal::parent::getConfig config=${config}`);
     setGlobal({ config });
   });
 
   parent.checkType().then((type) => {
     console.log("TYPE: ", type)
+    console.log(`DBG: simpleid-widget::index.js::penpal::parent::checkType type=${type}`);
     setGlobal({ type });
   })
 });
 
 setGlobal({
   auth: true,
-  action: "sign-in", 
-  approval: false, 
-  pendingToken: false, 
-  config: {}, 
+  action: "sign-in",
+  approval: false,
+  pendingToken: false,
+  config: {},
   email: "",
-  token: "", 
-  password: "", 
-  keychain: {}, 
-  encrypt: false, 
-  txDetails: {}, 
-  error: "", 
+  token: "",
+  password: "",
+  keychain: {},
+  encrypt: false,
+  txDetails: {},
+  error: "",
   subaction: "",
   type: ""
 })

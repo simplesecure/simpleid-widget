@@ -20,35 +20,37 @@ export default class App extends React.Component {
   componentWillUnmount() {
     setGlobal({
       auth: true,
-      action: "sign-in", 
-      approval: false, 
-      pendingToken: false, 
-      config: {}, 
+      action: "sign-in",
+      approval: false,
+      pendingToken: false,
+      config: {},
       email: "",
-      token: "", 
-      password: "", 
-      keychain: {}, 
-      encrypt: false, 
-      txDetails: {}, 
-      error: "", 
+      token: "",
+      password: "",
+      keychain: {},
+      encrypt: false,
+      txDetails: {},
+      error: "",
       subaction: ""
     })
   }
 
   render() {
     const { auth } = this.global;
+    console.log(`DBG: simpleid-widget::App.js::render, auth=${auth}`)
+
     return (
       <Modal show={true}>
         <Header />
         <Modal.Body>
           {
-            auth ? 
-            <Auth /> : 
+            auth ?
+            <Auth /> :
             <Approve />
           }
         </Modal.Body>
         <Modal.Footer>
-          <Footer /> 
+          <Footer />
         </Modal.Footer>
       </Modal>
     )

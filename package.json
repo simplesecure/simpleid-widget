@@ -6,6 +6,7 @@
     "aws-amplify": "^2.2.1",
     "aws-sdk": "^2.593.0",
     "bootstrap": "^4.3.1",
+    "buffer": "^5.4.3",
     "crypto-js": "^3.1.9-1",
     "ethereumjs-tx": "^2.1.1",
     "ethers": "^4.0.40",
@@ -15,6 +16,7 @@
     "react-dom": "^16.12.0",
     "react-scripts": "3.2.0",
     "reactn": "^2.2.4",
+    "shamirs-secret-sharing": "^1.0.1",
     "web3": "^1.2.4"
   },
   "scripts": {

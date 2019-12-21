@@ -159,7 +159,13 @@ export async function approveSignIn() {
   console.log('DBG: ---------------------------------------------------------------')
 
   if (!JUSTIN_FLOW) { // New AC Flow
-    // setGlobal({ auth: true, action: "loading" });
+    // WARNING:
+    //  - Do not comment out the line below. For some reason, if you do
+    //    the call to answerCustomChallenge will fail in the browser (the
+    //    request gets cancelled). It's not clear why, but a starting point
+    //    to understand this is browser optimizations within iFrames:
+    //    https://stackoverflow.com/questions/12009423/what-does-status-canceled-for-a-resource-mean-in-chrome-developer-tools
+    setGlobal({ auth: true, action: "loading" });
     const { email, token } = await getGlobal();
     const connection = connectToParent({
       // Methods child is exposing to parent

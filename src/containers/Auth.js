@@ -120,6 +120,7 @@ export default class Auth extends React.Component {
 
   render = () => {
     const { config, action } = this.global;
+    console.log(`DBG: simpleid-widget::Auth.js::render, action=${action}`)
 
     let containerElements = undefined
     switch (action) {
