@@ -2,9 +2,8 @@ import React, { setGlobal } from 'reactn';
 import { getTxDetails } from '../actions/postMessage';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
-import { handlePassword, handleHash, returnSignedMessage, closeWidget } from '../actions/postMessage';
+import { handleHash, returnSignedMessage, closeWidget, approveSignIn, signIn } from '../actions/postMessage';
 const Tx = require('ethereumjs-tx').Transaction;
-const CryptoJS = require("crypto-js");
 const ethers = require('ethers');
 const Web3 = require('web3');
 const keys = require('../utils/keys.json');
@@ -25,25 +24,30 @@ export default class Approve extends React.Component {
   }
 
   estimateGas = async () => {
+    //FOR DEBUGGING AND TESTING: 
     const { txDetails } = this.global;
     const gasFee = await web3.eth.estimateGas(txDetails.tx);
     this.setState({ gasFee });
     //console.log("THE FEE: ", ethers.utils.formatEther(gasFee));
   }
 
+  //TODO: change this to a proper descriptive name
   submitPassword = async (e) => {
+    e.preventDefault();
     const { txDetails, config, subaction, type } = this.global;
     const { gasFee } = this.state;
-    const keychain = await handlePassword(e, 'tx');
-    const parsedKeychain = JSON.parse(keychain.toString(CryptoJS.enc.Utf8));
-    const address = parsedKeychain.signingKey.address;
+    const approval = await approveSignIn();
+    console.log(approval);
+
+    const address = approval.signingKey.address;
+    console.log("ADDRESS: ", address);
     const provider = ethers.getDefaultProvider(config.network);
 
     if(subaction === "approve-msg") {
-      if(parsedKeychain.signingKey) {
+      if(approval.signingKey) {
         // const message = web3.utils.toUtf8(txDetails.tx.data);
         // console.log(message);
-        const wallet = ethers.Wallet.fromMnemonic(parsedKeychain.signingKey.mnemonic).connect(provider);
+        const wallet = ethers.Wallet.fromMnemonic(approval.signingKey.mnemonic).connect(provider);
         const binaryData = ethers.utils.arrayify(txDetails.tx.data);
 
         const signPromise = await wallet.signMessage(binaryData)
@@ -55,18 +59,18 @@ export default class Approve extends React.Component {
     } else {
       try {
         //console.log(keychain.toString(CryptoJS.enc.Utf8));
-        if(parsedKeychain.signingKey) {
+        if(approval.signingKey) {
           //Let's broadcast this transaction!
           setGlobal({ action: "loading" });
           txDetails.tx["nonce"] = await provider.getTransactionCount(address);
           console.log("TXDETAILS: ", txDetails.tx)
           //Now sign the tx
           let txx = new Tx(txDetails.tx, {chain: config.network })
-          const privateKey = Buffer.from(parsedKeychain.signingKey.keyPair.privateKey.substring(2), 'hex');
-          //console.log(privateKey);
+          const privateKey = Buffer.from(approval.signingKey.keyPair.privateKey.substring(2), 'hex');
+          console.log("PRIVATE KEY: ", privateKey);
           txx.sign(privateKey);
           const sTx = txx.serialize();
-          //console.log("STX: ", sTx);
+          console.log("STX: ", sTx);
           //Send the transaction  
           const balance = await provider.getBalance(address);
           const etherBalance = ethers.utils.formatEther(balance);
@@ -88,39 +92,8 @@ export default class Approve extends React.Component {
                   .on('transactionHash', (hash) => {
                     console.log("Yo yo yo: ", hash);
                     handleHash(hash);
-                  })
-                  // .on('receipt', (receipt) => {
-                  //   console.log("Bam Bam Bam: ", receipt);
-                  //   handleHash(receipt);
-                  //   // setTimeout(() => {
-                  //   //   console.log("Sending...");
-                  //   //   //console.log(sent);
-                  //   //   //const hash = `0x${txx.hash().toString('hex')}`; 
-                  //   //   //console.log(hash);               
-                  //   //   handleHash(receipt);
-                  //   // }, 1500)
-                  // })                                 
-                }                
-                // web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'));
-                //   setTimeout(() => {
-                //     console.log("Sending...");
-                //     //console.log(sent);
-                //     //const hash = `0x${txx.hash().toString('hex')}`; 
-                //     //console.log(hash);               
-                //     handleHash(JSON.stringify(txx));
-                //   }, 1500)
-                // if(type === "eth_signTransaction") {
-                //   handleHash(sTx);
-                // } else {
-                //   web3.eth.sendSignedTransaction('0x' + sTx.toString('hex'));
-                //   setTimeout(() => {
-                //     console.log("Sending...");
-                //     //console.log(sent);
-                //     //const hash = `0x${txx.hash().toString('hex')}`; 
-                //     //console.log(hash);               
-                //     handleHash(JSON.stringify(txx));
-                //   }, 1500)
-                // }
+                  })                                     
+                }                          
               } catch(e) {
                 console.log("TX ERROR: ", e);
               }              
@@ -136,7 +109,6 @@ export default class Approve extends React.Component {
         setGlobal({ subaction: "", error: "Please verify your password is correct", password: "" });
       }
     }
-    //debugger;
   }
 
   handlePassword = (e) => {
@@ -147,6 +119,16 @@ export default class Approve extends React.Component {
     const { config } = this.global;
     web3 = new Web3(new Web3.providers.HttpProvider(`https://${config.network}.infura.io/v3/${INFURA_KEY}`));
     this.setState({ web3Connected: true });
+  }
+
+  approveTransaction = async () => {
+    console.log("APPROVE IT!")
+    //For now, let's hardcode the email: 
+    const email = "justin@simpleid.xyz";
+    //Updating state to reflect the approval screen
+    await setGlobal({ subaction: 'approve-tx', error: "", email, nonSignInEvent: true })
+    //Here we are firing off an approval token to the user's email
+    signIn();
   }
 
   render() {
@@ -175,27 +157,37 @@ export default class Approve extends React.Component {
             action === "transaction" ?
             <div>
               <h5>Approve Action?</h5>
-              <div className="text-left">
-              <p>App: <mark>{txDetails.appName}</mark></p>
               {
-                txDetails && txDetails.tx && txDetails.tx.value ? 
-                <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>: 
-                <p></p>
-              }
-              <p>Est. Fee (in eth): <mark>{ethers.utils.formatEther(gasFee)}</mark></p>
+                subaction !== 'approve-tx' ? 
+                <div>
+                  <div className="text-left">
+                    <p>App: <mark>{txDetails.appName}</mark></p>
+                    {
+                      txDetails && txDetails.tx && txDetails.tx.value ? 
+                      <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>: 
+                      <p></p>
+                    }
+                    <p>Est. Fee (in eth): <mark>{ethers.utils.formatEther(gasFee)}</mark></p>
+                  </div>
+                </div> : 
+                <div />
+              }              
               {
                 subaction === "approve-tx" ? 
                 <div>
+                  <h5>Enter the code you received via email to continue</h5>
+                  <p>If you didn't receive a code, <span className="a-span" onClick={() => setGlobal({ auth: true, action: "sign-in"})}>try sending it again.</span></p>
                   <Form onSubmit={this.submitPassword}>
                     <Form.Group controlId="formBasicEmail">
-                      <Form.Control onChange={this.handlePassword} type="password" placeholder="Your password" />
-                    </Form.Group>              
+                      <Form.Control onChange={(e) => setGlobal({ token: e.target.value})} type="text" placeholder="123456" />
+                    </Form.Group>
                     <Button variant="primary" type="submit">
                       Approve
-                    </Button>                  
+                    </Button>
                   </Form>
-                </div> : 
-                <Button variant="primary" onClick={() => setGlobal({ subaction: 'approve-tx', error: ""})}>
+                </div>
+                : 
+                <Button variant="primary" onClick={this.approveTransaction}>
                   Approve
                 </Button>
               }
@@ -204,7 +196,7 @@ export default class Approve extends React.Component {
                 Reject
               </Button>
               <p className="text-danger error-message">{error}</p>
-            </div>
+            
             </div> : 
             <div>
               <h5>Approve Action</h5>

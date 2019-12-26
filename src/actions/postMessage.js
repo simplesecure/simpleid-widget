@@ -4,7 +4,6 @@ import { getGlobal, setGlobal } from 'reactn';
 const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
-
 // TODO: this should get created in index.js and get binded to the iframe
 const ss = new SidServices()
 
@@ -22,11 +21,14 @@ export function closeWidget(close) {
 }
 
 export async function signIn() {
-  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
-    setGlobal({ auth: true, action: "loading" });
+  const { nonSignInEvent, action } = getGlobal();
+  console.log("COGNITO FLOW: ", process.env.REACT_APP_COGNITO_FLOW);
+  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  
+    // New AC Flow
+    setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
     const { email } = await getGlobal();
     await ss.signInOrUp(email)
-    setGlobal({ auth: true, action: 'sign-in-approval' })
+    setGlobal({ auth: nonSignInEvent ? false : true, action: nonSignInEvent ? action : 'sign-in-approval' })
   } else {  // Original Justin Flow
     setGlobal({ auth: true, action: "loading" });
     const { email } = await getGlobal();
@@ -136,6 +138,8 @@ export async function handlePassword(e, actionType) {
 }
 
 export async function approveSignIn() {
+  const { nonSignInEvent } = getGlobal();
+  console.log(nonSignInEvent);
   if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     // WARNING:
     //  - Do not comment out the line below. For some reason, if you do
@@ -147,16 +151,47 @@ export async function approveSignIn() {
     const { token } = await getGlobal();
 
     let authenticatedUser = false
+    let walletAddr = "";
+    let wallet = {};
     try {
-      authenticatedUser = await ss.answerCustomChallenge(token)
+      const userSession = await ss.answerCustomChallenge(token, nonSignInEvent)
+      authenticatedUser = userSession.signedIn;
+      walletAddr = userSession.address;
+      wallet = userSession.ethWallet ? userSession.ethWallet : {};
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
       console.log(`ERROR: Failed trying to submit or match the code:\n`)
       console.log(error)
     }
-    if (authenticatedUser) {
-      closeWidget(true)
+
+    console.log("AUTHENTICATED USER: ", authenticatedUser);
+    console.log("NON SIGN IN EVENT: ", nonSignInEvent);
+    //TODO: @AC needs to review because this might be a place where we are revealing too much to the parent
+    if (authenticatedUser && !nonSignInEvent) {
+      const connection = connectToParent({
+        // Methods child is exposing to parent
+        methods: {
+          //
+        }
+      });
+  
+      connection.promise.then(parent => {
+        const userData = {
+          email: "", //TODO: remove this
+          wallet: {
+            ethAddr: walletAddr
+          }
+        }
+  
+        parent.storeWallet(JSON.stringify(userData)).then((res) => {
+          closeWidget(true);
+        })
+      });
+    } else if(nonSignInEvent) {
+      //This is where we should return the keychain for transaction handling and messaging signing events
+      return wallet;
+      //return authenticatedUser;
     } else {
       // TODO: something more appropriate here (i.e. try to sign-in-approval again
       //       which I think this should be doing, but it's not).

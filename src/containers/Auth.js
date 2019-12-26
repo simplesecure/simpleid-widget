@@ -25,6 +25,7 @@ export default class Auth extends React.Component {
   // Renderers
   //////////////////////////////////////////////////////////////////////////////
   renderSignInApproval = () => {
+    console.log("THIS AINT RIGHT");
     return (
       <div>
         <h5>Enter the code you received via email to continue</h5>

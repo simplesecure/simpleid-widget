@@ -40,7 +40,8 @@ setGlobal({
   txDetails: {},
   error: "",
   subaction: "",
-  type: ""
+  type: "", 
+  nonSignInEvent: false
 })
 
 ReactDOM.render(<App />, document.getElementById('root'));

@@ -112,10 +112,13 @@ export class SidServices
     }
   }
 
-  answerCustomChallenge = async (anAnswer) => {
+  answerCustomChallenge = async (anAnswer, nonSignInEvent) => {
     try {
+      console.log("COGNITO USER: ", this.cognitoUser);
+      console.log("anAnswer: ", anAnswer);
       this.cognitoUser = await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
     } catch (error) {
+      console.log("CUSTOM CHALLENGE ERROR: ", error)
       throw error
     }
 
@@ -191,12 +194,26 @@ export class SidServices
       console.log('*******************************************************')
       console.log('Eth Wallet:')
       console.log(ethWallet)
+      if(nonSignInEvent) {
+        
+        //For transactions and messages, we need the wallet for signing
+        return {
+          ethWallet, 
+          signedIn: true, 
+          address: ethWallet && ethWallet.address ? ethWallet.address : ""
+        }
+        //return ethWallet;
+      }
       // console.log(`  mnemonic: ${mnemonicStr}`)
       console.log(`  address: ${ethWallet.address}`)
       console.log('*******************************************************')
+      return {
+        signedIn: true, 
+        address: ethWallet && ethWallet.address ? ethWallet.address : ""
+      }
     }
 
-    return authenticated
+    return authenticated;
   }
 
   isAuthenticated = async () => {
