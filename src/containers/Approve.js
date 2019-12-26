@@ -121,12 +121,12 @@ export default class Approve extends React.Component {
     this.setState({ web3Connected: true });
   }
 
-  approveTransaction = async () => {
+  approveTransaction = async (type) => {
     console.log("APPROVE IT!")
     //For now, let's hardcode the email: 
     const email = "justin@simpleid.xyz";
     //Updating state to reflect the approval screen
-    await setGlobal({ subaction: 'approve-tx', error: "", email, nonSignInEvent: true })
+    await setGlobal({ subaction: type, error: "", email, nonSignInEvent: true })
     //Here we are firing off an approval token to the user's email
     signIn();
   }
@@ -187,7 +187,7 @@ export default class Approve extends React.Component {
                   </Form>
                 </div>
                 : 
-                <Button variant="primary" onClick={this.approveTransaction}>
+                <Button variant="primary" onClick={() => this.approveTransaction("approve-tx")}>
                   Approve
                 </Button>
               }
@@ -208,14 +208,14 @@ export default class Approve extends React.Component {
                 <div>
                   <Form onSubmit={this.submitPassword}>
                     <Form.Group controlId="formBasicEmail">
-                      <Form.Control onChange={this.handlePassword} type="password" placeholder="Your password" />
-                    </Form.Group>              
+                      <Form.Control onChange={(e) => setGlobal({ token: e.target.value})} type="text" placeholder="123456" />
+                    </Form.Group>
                     <Button variant="primary" type="submit">
                       Approve
-                    </Button>                  
+                    </Button>
                   </Form>
                 </div> : 
-                <Button variant="primary" onClick={() => setGlobal({ subaction: 'approve-msg', error: ""})}>
+                <Button variant="primary" onClick={() => this.approveTransaction("approve-msg")}>
                   Approve
                 </Button>
               }
