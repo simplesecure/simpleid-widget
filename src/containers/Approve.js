@@ -123,7 +123,7 @@ export default class Approve extends React.Component {
 
   approveTransaction = async (type) => {
     console.log("APPROVE IT!")
-    //For now, let's hardcode the email: 
+    //TODO: Update this to fetch from iframe local storage
     const email = "justin@simpleid.xyz";
     //Updating state to reflect the approval screen
     await setGlobal({ subaction: type, error: "", email, nonSignInEvent: true })
