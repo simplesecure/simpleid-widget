@@ -28,16 +28,106 @@ const KEY_FARM_IDS = [
   'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
 ]
 
+// Local storage key for sid services data and static symmetric encryption
+// key obfuscate locally stored data:
+const SID_SVCS_LS_KEY = 'SID_SVCS'
+const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3'
+
+// Adapted from: https://stackoverflow.com/questions/34557889/how-to-deserialize-a-nested-buffer-using-json-parse
+function jsonParseToBuffer(aStringifiedObj) {
+  return JSON.parse(
+    aStringifiedObj,
+    (k, v) => {
+      if ( v != null               &&
+           typeof v === 'object'   &&
+           'type' in v             &&
+           v.type === 'Buffer'     &&
+           'data' in v             &&
+           Array.isArray(v.data) ) {
+        return Buffer.from(v.data)
+      }
+      return v
+    }
+  )
+}
 
 export class SidServices
 {
   constructor() {
     this.cognitoUser = undefined
     this.signUpUserOnConfirm = false
-    // Is this readable from the token scopes?
-    this.email = undefined
+
     this.keyId1 = undefined
     this.keyId2 = undefined
+
+    this.persist = {
+      email: undefined,
+      address: undefined,
+      secretCipherText1: undefined,
+      secretCipherText2: undefined
+    }
+
+    console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+    console.log('DBG: attempting to fetch data from local storage')
+    try {
+      // TODO: de-obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
+      const stringifiedData = localStorage.getItem(SID_SVCS_LS_KEY)
+      console.log(`DBG: recovered persistent data from local storage.\n${stringifiedData}`)
+      const persistedData = jsonParseToBuffer(stringifiedData)
+      if (persistedData.hasOwnProperty('email') &&
+          persistedData.hasOwnProperty('address') &&
+          persistedData.email && persistedData.address) {
+        console.log(`DBG: successfully recovered and inflated persisted data.`)
+        this.persist = persistedData
+      }
+    } catch (suppressedError) {
+      console.log(`DBG: error recovering persistent data from local storage.\n${suppressedError}`)
+    }
+
+    this.neverPersist = {
+      wallet: undefined,
+    }
+  }
+
+  getEmail() {
+    return this.persist.email
+  }
+
+  async getWallet() {
+    // If the wallet is undefined, then the iframe has been collapsed and removed
+    // from memory. Need to re-compose the user's secrets after decrypting them first
+    // (assumes tokens still valid--if not will need sign in with MFA):
+    if (!this.neverPersist.wallet &&
+         this.persist.secretCipherText1 &&
+         this.persist.secretCipherText2) {
+      // CopyPasta from 2nd half of sign-in
+      // TODO: clean up
+
+      // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
+      // TODO: -should these be Buffer.from()?
+      const secretPlainText1 =
+        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
+      const secretPlainText2 =
+        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
+
+      // 3. Merge the secrets to recover the keychain
+      const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
+
+      // 4. Inflate the wallet and persist it to state.
+      const mnemonicStr = secretMnemonic.toString()
+      this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
+
+      // Sanity check
+      if (this.persist.address != this.neverPersist.wallet.address) {
+        throw `ERR: wallet addresses not equal. Persisted ${this.persist.address} vs. recovered ${this.neverPersist.wallet.address}`
+      }
+    }
+
+    return this.neverPersist.wallet
+  }
+
+  getWalletAddress() {
+    return this.persist.address
   }
 
   // TODO: do we want to expand this to use phone numbers?
@@ -59,6 +149,7 @@ export class SidServices
 
     try {
       this.cognitoUser = await Auth.signIn(anEmail)
+      this.persist.email = anEmail
       return
     } catch (error) {
       if (error.code !== 'UserNotFoundException') {
@@ -91,7 +182,8 @@ export class SidServices
 
       // Local state store items for sign-up process after successfully answering
       // a challenge question:
-      this.email = anEmail
+      this.persist.email = anEmail
+
       this.keyId1 = KEY_FARM_IDS[KFA1]
       this.keyId2 = KEY_FARM_IDS[KFA2]
       this.signUpUserOnConfirm = true
@@ -128,29 +220,29 @@ export class SidServices
     if (authenticated && this.signUpUserOnConfirm) {
       try {
         // Sign Up specific operations:
+        //
+
         //  1. Generate keychain
-        const ethWallet = ethers.Wallet.createRandom()
-        // setGlobal({ keychain: newWallet });
+        this.neverPersist.wallet = ethers.Wallet.createRandom()
+        this.persist.address = this.neverPersist.wallet.address
 
         //  2. SSS
-        const secret = Buffer.from(ethWallet.mnemonic)
+        const secret = Buffer.from(this.neverPersist.wallet.mnemonic)
         const shares = SSS.split(secret, { shares: 3, threshold: 2 })
 
         //  3. Encrypt & store private / secret user data
         // TODO: separate email / wallet address as per dicussions on firewalling
-        let secretCipherText1 =
-          await this.encryptKeyAssignmentWithIdpCredentials(
-            this.keyId1, shares[0])
+        this.persist.secretCipherText1 =
+          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId1, shares[0])
 
-        let secretCipherText2 =
-          await this.encryptKeyAssignmentWithIdpCredentials(
-            this.keyId2, shares[1])
+        this.persist.secretCipherText2 =
+          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId2, shares[1])
 
         const userData = {
-          email: this.email,
-          address: ethWallet.address,
-          secretCipherText1,
-          secretCipherText2,
+          email: this.persist.email,
+          address: this.persist.address,
+          secretCipherText1: this.persist.secretCipherText1,
+          secretCipherText2: this.persist.secretCipherText2,
         }
 
         //  4. Store user data
@@ -161,7 +253,7 @@ export class SidServices
         console.log('DBG: DELETE this comment after debugging / system ready')
         console.log('*******************************************************')
         console.log('Eth Wallet:')
-        console.log(ethWallet)
+        console.log(this.neverPersist.wallet)
         console.log('*******************************************************')
       } catch (error) {
         throw Error(`ERROR: signing up user after successfully answering customer challenge failed.\n${error}`)
@@ -172,44 +264,63 @@ export class SidServices
       }
     } else if (authenticated) {
       // Sign in specific operations:
+      //
+
       // 1. Fetch the encrypted secrets from Dynamo
       const userData = await this.readFromDynamoWithIdpCredentials()
+      this.persist.secretCipherText1 = userData.Item.secretCipherText1
+      this.persist.secretCipherText2 = userData.Item.secretCipherText2
+
 
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       // TODO: -should these be Buffer.from()?
       const secretPlainText1 =
-        await this.decryptKeyAssignmentWithIdpCredentials(userData.Item.secretCipherText1)
+        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
       const secretPlainText2 =
-        await this.decryptKeyAssignmentWithIdpCredentials(userData.Item.secretCipherText2)
+        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
 
       // 3. Merge the secrets to recover the keychain
       const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
 
       // 4. Inflate the wallet and persist it to state.
       const mnemonicStr = secretMnemonic.toString()
-      const ethWallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
+      this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
+      this.persist.address = this.neverPersist.wallet.address
+
       // TODO: Justin solution to persist (local storage in encrypted state so
       //       no need to hit AWS (faster, cheaper))
       console.log('DBG: DELETE this comment after debugging / system ready')
       console.log('*******************************************************')
       console.log('Eth Wallet:')
-      console.log(ethWallet)
-      if(nonSignInEvent) {
-        
-        //For transactions and messages, we need the wallet for signing
-        return {
-          ethWallet, 
-          signedIn: true, 
-          address: ethWallet && ethWallet.address ? ethWallet.address : ""
-        }
-        //return ethWallet;
-      }
-      // console.log(`  mnemonic: ${mnemonicStr}`)
-      console.log(`  address: ${ethWallet.address}`)
-      console.log('*******************************************************')
-      return {
-        signedIn: true, 
-        address: ethWallet && ethWallet.address ? ethWallet.address : ""
+      console.log(this.neverPersist.wallet)
+
+      // if(nonSignInEvent) {
+      //   //For transactions and messages, we need the wallet for signing
+      //   return {
+      //     ethWallet: this.neverPersist.wallet,
+      //     signedIn: true,
+      //     address: this.neverPersist.wallet && this.neverPersist.wallet.address ?
+      //                this.neverPersist.wallet.address : ""
+      //   }
+      //
+      //   //return ethWallet;
+      // }
+      //
+      // console.log(`  address: ${this.neverPersist.wallet.address}`)
+      // console.log('*******************************************************')
+      //
+      // return {
+      //   signedIn: true,
+      //   address: ethWallet && ethWallet.address ? ethWallet.address : ""
+      // }
+    }
+
+    if (authenticated) {
+      try {
+        // TODO: obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
+        localStorage.setItem(SID_SVCS_LS_KEY, JSON.stringify(this.persist))
+      } catch (error) {
+        console.log('ERROR persisting SID services data to local store.')
       }
     }
 

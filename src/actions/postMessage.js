@@ -1,11 +1,12 @@
+// TODO:  re-think. This is likely a sub-optimal way to share state w/o rerender.\
+// WARNING: Order is important for this require
+import { getSidSvcs } from '../index.js'
+
 import connectToParent from 'penpal/lib/connectToParent';
-import { SidServices } from '../utils/sidServices'
 import { getGlobal, setGlobal } from 'reactn';
 const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
-// TODO: this should get created in index.js and get binded to the iframe
-const ss = new SidServices()
 
 export function closeWidget(close) {
   const connection = connectToParent({
@@ -23,11 +24,11 @@ export function closeWidget(close) {
 export async function signIn() {
   const { nonSignInEvent, action } = getGlobal();
   console.log("COGNITO FLOW: ", process.env.REACT_APP_COGNITO_FLOW);
-  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  
+  if (process.env.REACT_APP_COGNITO_FLOW === 'true') {
     // New AC Flow
     setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
     const { email } = await getGlobal();
-    await ss.signInOrUp(email)
+    await getSidSvcs().signInOrUp(email)
     setGlobal({ auth: nonSignInEvent ? false : true, action: nonSignInEvent ? action : 'sign-in-approval' })
   } else {  // Original Justin Flow
     setGlobal({ auth: true, action: "loading" });
@@ -154,10 +155,12 @@ export async function approveSignIn() {
     let walletAddr = "";
     let wallet = {};
     try {
-      const userSession = await ss.answerCustomChallenge(token, nonSignInEvent)
-      authenticatedUser = userSession.signedIn;
-      walletAddr = userSession.address;
-      wallet = userSession.ethWallet ? userSession.ethWallet : {};
+      authenticatedUser = await getSidSvcs().answerCustomChallenge(token, nonSignInEvent)
+      const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
+      walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : ""
+      const sidSvcWallet = getSidSvcs().getWallet()
+      wallet = sidSvcWallet ? sidSvcWallet : {}
+
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
@@ -175,7 +178,7 @@ export async function approveSignIn() {
           //
         }
       });
-  
+
       connection.promise.then(parent => {
         const userData = {
           email: "", //TODO: remove this
@@ -183,7 +186,7 @@ export async function approveSignIn() {
             ethAddr: walletAddr
           }
         }
-  
+
         parent.storeWallet(JSON.stringify(userData)).then((res) => {
           closeWidget(true);
         })

@@ -1,3 +1,10 @@
+// Copyright (c) 2019 Stealthy Inc., All Rights Reserved
+
+
+// TODO:  re-think. This is likely a sub-optimal way to share state w/o rerender.
+// WARNING: Order is important for this require
+import { getSidSvcs } from '../index.js'
+
 import React, { setGlobal } from 'reactn';
 import { getTxDetails } from '../actions/postMessage';
 import Button from 'react-bootstrap/Button';
@@ -14,7 +21,7 @@ export default class Approve extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      gasFee: "0", 
+      gasFee: "0",
       web3Connected: false
     }
   }
@@ -24,7 +31,7 @@ export default class Approve extends React.Component {
   }
 
   estimateGas = async () => {
-    //FOR DEBUGGING AND TESTING: 
+    //FOR DEBUGGING AND TESTING:
     const { txDetails } = this.global;
     const gasFee = await web3.eth.estimateGas(txDetails.tx);
     this.setState({ gasFee });
@@ -51,7 +58,7 @@ export default class Approve extends React.Component {
         const binaryData = ethers.utils.arrayify(txDetails.tx.data);
 
         const signPromise = await wallet.signMessage(binaryData)
-        
+
         returnSignedMessage(signPromise);
       } else {
         setGlobal({ error: "Please verify your password is correct", password: "" });
@@ -71,7 +78,7 @@ export default class Approve extends React.Component {
           txx.sign(privateKey);
           const sTx = txx.serialize();
           console.log("STX: ", sTx);
-          //Send the transaction  
+          //Send the transaction
           const balance = await provider.getBalance(address);
           const etherBalance = ethers.utils.formatEther(balance);
           const fee = txDetails && txDetails.tx && txDetails.tx.value ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : "0";
@@ -92,11 +99,11 @@ export default class Approve extends React.Component {
                   .on('transactionHash', (hash) => {
                     console.log("Yo yo yo: ", hash);
                     handleHash(hash);
-                  })                                     
-                }                          
+                  })
+                }
               } catch(e) {
                 console.log("TX ERROR: ", e);
-              }              
+              }
             }
           }
         } else {
@@ -124,11 +131,29 @@ export default class Approve extends React.Component {
   approveTransaction = async (type) => {
     console.log("APPROVE IT!")
     //TODO: Update this to fetch from iframe local storage
-    const email = "justin@simpleid.xyz";
+    // const email = "justin@simpleid.xyz";
+    const email = getSidSvcs().getEmail()
+    console.log('*************************************************************')
+    console.log(`DBG: Email from SID Services = ${email}`)
+
     //Updating state to reflect the approval screen
     await setGlobal({ subaction: type, error: "", email, nonSignInEvent: true })
     //Here we are firing off an approval token to the user's email
-    signIn();
+
+    // signIn();
+    if (getSidSvcs().isAuthenticated()) {
+      const address = getSidSvcs().getWalletAddress()
+      console.log(`DBG: Wallet address from SID Services = ${address}`)
+
+      const wallet = await getSidSvcs().getWallet()
+      console.log('DBG: After rebuilding user\'s wallet with existing tokens.')
+      console.log('DBG: DELETE this comment after debugging / system ready')
+      console.log('*******************************************************')
+      console.log('Eth Wallet:')
+      console.log(wallet)
+    } else {
+      // TODO: we'll need to sign the user in again (may need to sign in)
+    }
   }
 
   render() {
@@ -147,7 +172,7 @@ export default class Approve extends React.Component {
       <div>
         <div className="container text-center">
           {
-            action === "loading" ? 
+            action === "loading" ?
             <div>
               <h5>Processing...</h5>
               <div className="loader">
@@ -158,22 +183,22 @@ export default class Approve extends React.Component {
             <div>
               <h5>Approve Action?</h5>
               {
-                subaction !== 'approve-tx' ? 
+                subaction !== 'approve-tx' ?
                 <div>
                   <div className="text-left">
                     <p>App: <mark>{txDetails.appName}</mark></p>
                     {
-                      txDetails && txDetails.tx && txDetails.tx.value ? 
-                      <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>: 
+                      txDetails && txDetails.tx && txDetails.tx.value ?
+                      <p>Amount (in eth): <mark>{txDetails && txDetails.tx ? ethers.utils.formatEther(ethers.utils.bigNumberify(txDetails.tx.value).toString()) : ""}</mark></p>:
                       <p></p>
                     }
                     <p>Est. Fee (in eth): <mark>{ethers.utils.formatEther(gasFee)}</mark></p>
                   </div>
-                </div> : 
+                </div> :
                 <div />
-              }              
+              }
               {
-                subaction === "approve-tx" ? 
+                subaction === "approve-tx" ?
                 <div>
                   <h5>Enter the code you received via email to continue</h5>
                   <p>If you didn't receive a code, <span className="a-span" onClick={() => setGlobal({ auth: true, action: "sign-in"})}>try sending it again.</span></p>
@@ -186,25 +211,25 @@ export default class Approve extends React.Component {
                     </Button>
                   </Form>
                 </div>
-                : 
+                :
                 <Button variant="primary" onClick={() => this.approveTransaction("approve-tx")}>
                   Approve
                 </Button>
               }
-              
+
               <Button onClick={() => closeWidget(false)} variant="seconday" type="">
                 Reject
               </Button>
               <p className="text-danger error-message">{error}</p>
-            
-            </div> : 
+
+            </div> :
             <div>
               <h5>Approve Action</h5>
               <div className="text-left">
               <p>App: <mark>{txDetails.appName}</mark></p>
               <p>Message To Sign: <mark>{txDetails && txDetails.tx && web3Connected ? web3.utils.toUtf8(txDetails.tx.data) : ""}</mark></p>
               {
-                subaction === "approve-msg" ? 
+                subaction === "approve-msg" ?
                 <div>
                   <Form onSubmit={this.submitPassword}>
                     <Form.Group controlId="formBasicEmail">
@@ -214,7 +239,7 @@ export default class Approve extends React.Component {
                       Approve
                     </Button>
                   </Form>
-                </div> : 
+                </div> :
                 <Button variant="primary" onClick={() => this.approveTransaction("approve-msg")}>
                   Approve
                 </Button>

@@ -5,6 +5,25 @@ import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 
+// Global for interfacing to SID Services
+// TODO: clean up
+// WARNING: cant mix import and export, hence use of require here (webpack issue
+//          see https://github.com/webpack/webpack/issues/4039)
+// TODO: ensure scope is window local (i.e. doesn't leak out of iframe)
+const sidServices = require('./utils/sidServices')
+let sidSvcs = undefined
+// TODO: cleanup this workaround for initialization order errors:
+export const getSidSvcs = () => {
+  if (!sidSvcs) {
+    sidSvcs = new sidServices.SidServices()
+  }
+
+  return sidSvcs
+}
+
+console.log('Created global instance of SidServices')
+console.log('/////////////////////////////////////////////////////////////////')
+
 const connection = connectToParent({
   // Methods child is exposing to parent
   methods: {
@@ -40,7 +59,7 @@ setGlobal({
   txDetails: {},
   error: "",
   subaction: "",
-  type: "", 
+  type: "",
   nonSignInEvent: false
 })
 
