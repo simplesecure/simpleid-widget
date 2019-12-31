@@ -31,7 +31,7 @@ const KEY_FARM_IDS = [
 // Local storage key for sid services data and static symmetric encryption
 // key obfuscate locally stored data:
 const SID_SVCS_LS_KEY = 'SID_SVCS'
-const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3'
+//const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3' TODO: AC code, do we need this? Wasn't being used
 
 // Adapted from: https://stackoverflow.com/questions/34557889/how-to-deserialize-a-nested-buffer-using-json-parse
 function jsonParseToBuffer(aStringifiedObj) {
@@ -118,7 +118,8 @@ export class SidServices
       this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
 
       // Sanity check
-      if (this.persist.address != this.neverPersist.wallet.address) {
+      if (this.persist.address !== this.neverPersist.wallet.address) {
+        // eslint-disable-next-line
         throw `ERR: wallet addresses not equal. Persisted ${this.persist.address} vs. recovered ${this.neverPersist.wallet.address}`
       }
     }
