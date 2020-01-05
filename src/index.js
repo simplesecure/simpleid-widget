@@ -4,6 +4,7 @@ import './index.css';
 import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
+import { handleData } from './actions/dataProcessing';
 
 // Global for interfacing to SID Services
 // TODO: clean up
@@ -38,6 +39,14 @@ connection.promise.then(parent => {
   parent.getConfig().then((config) => {
     setGlobal({ config });
   });
+
+  parent.dataToProcess().then((data) => {
+    console.log("DATA to Process: ")
+    console.log(data);
+    if(data) {
+      handleData(data)
+    }
+  })
 
   parent.checkType().then((type) => {
     console.log("TYPE: ", type)
