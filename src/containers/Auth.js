@@ -91,6 +91,9 @@ export default class Auth extends React.Component {
     return (
       <div>
         <h5>{theConfig.appName} is protecting you with <mark>SimpleID</mark></h5>
+        {/* 
+        
+        ////This can be used for eventual scopes an app may want to request. None to handle now, though////
         <p>The following information will be provided to the application if you log in: </p>
         <ul className="text-left">
           {
@@ -102,6 +105,8 @@ export default class Auth extends React.Component {
             <li>No scopes requested</li>
           }
         </ul>
+        */}
+        <p>Get started with just an email.</p>
         <Form onSubmit={signIn}>
           <Form.Group controlId="formBasicEmail">
             <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />

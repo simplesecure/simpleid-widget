@@ -28,8 +28,37 @@ export async function signIn() {
     // New AC Flow
     setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
     const { email } = await getGlobal();
-    await getSidSvcs().signInOrUp(email)
-    setGlobal({ auth: nonSignInEvent ? false : true, action: nonSignInEvent ? action : 'sign-in-approval' })
+    const signInFlow = await getSidSvcs().signInOrUp(email)
+    const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
+    const walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : "";
+    const sid = getSidSvcs().getSID();
+
+    if(signInFlow === 'already-logged-in') {
+      //This means a cognito token was still available
+      //TODO: If we decide to blow away cognito local storage on sign out, need to revisit this
+      //TODO: There's a more efficient way of handling this
+      const connection = connectToParent({
+        // Methods child is exposing to parent
+        methods: {
+          //
+        }
+      });
+  
+      connection.promise.then(parent => {
+        const userData = {
+          wallet: {
+            ethAddr: walletAddr
+          }, 
+          orgId: sid ? sid : null
+        }
+  
+        parent.storeWallet(JSON.stringify(userData)).then((res) => {
+          closeWidget(true);
+        })
+      });
+    } else {
+      setGlobal({ auth: nonSignInEvent ? false : true, action: nonSignInEvent ? action : 'sign-in-approval' })
+    }
   } else {  // Original Justin Flow
     setGlobal({ auth: true, action: "loading" });
     const { email } = await getGlobal();
@@ -154,12 +183,14 @@ export async function approveSignIn() {
     let authenticatedUser = false
     let walletAddr = "";
     let wallet = {};
+    let sid = {};
     try {
       authenticatedUser = await getSidSvcs().answerCustomChallenge(token, nonSignInEvent)
       const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
       walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : ""
       const sidSvcWallet = getSidSvcs().getWallet()
       wallet = sidSvcWallet ? sidSvcWallet : {}
+      sid = getSidSvcs().getSID();
 
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
@@ -184,7 +215,8 @@ export async function approveSignIn() {
           email: "", //TODO: remove this
           wallet: {
             ethAddr: walletAddr
-          }
+          }, 
+          orgId: sid ? sid : null
         }
 
         parent.storeWallet(JSON.stringify(userData)).then((res) => {

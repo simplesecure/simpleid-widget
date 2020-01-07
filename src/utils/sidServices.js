@@ -191,6 +191,10 @@ export class SidServices
     return this.neverPersist.wallet
   }
 
+  getSID() {
+    return this.persist.sid;
+  }
+
   getWalletAddress() {
     return this.persist.address
   }
@@ -239,7 +243,7 @@ export class SidServices
     if (authenticated) {
       // TODO: Might need to handle the UI (i.e. waiting on challenge is not
       //       needed if we're returning here.)
-      return
+      return 'already-logged-in'
     }
 
     // Test to see if the user is already in our Cognito user pool. If they are
@@ -417,13 +421,6 @@ export class SidServices
 
         await this.tablePutWithIdpCredentials( userDataRow )
 
-
-        // X.xxx (TODO remove this--just testing appId creation)
-        //
-        if (appIsSimpleId) {
-          await this.createAppId(orgId, 'My First App')
-        }
-
         //  4. c)  Create and store entry in Wallet to UUID map for this app
         //         (simple_id_wallet_uuid_map_v001)
         //
@@ -452,8 +449,8 @@ export class SidServices
         //         (simple_id_cust_analytics_data_v001)
         //
         if (!appIsSimpleId) {
-          const walletAnalyicsData = {}
-          // TODO
+          // TODO uncomment and handle analytics data
+          //const walletAnalyicsData = {}
         }
 
         //  5. Email / Save PDF secret
@@ -477,6 +474,7 @@ export class SidServices
       // 1. Fetch the encrypted secrets from Dynamo
       //
       const userData = await this.tableGetWithIdpCredentials()
+      console.log("USER DATA FROM EXISTING USER: ", userData);
       this.persist.secretCipherText1 = userData.Item.secretCipherText1
       this.persist.secretCipherText2 = userData.Item.secretCipherText2
 
@@ -496,7 +494,22 @@ export class SidServices
       const mnemonicStr = secretMnemonic.toString()
       this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
       this.persist.address = this.neverPersist.wallet.address
-
+      if(userData && userData.Item && userData.Item.sid && userData.Item.sid.org_id) {
+        this.persist.sid = userData && userData.Item && userData.Item.sid ? userData.Item.sid : null;
+      } else {
+        //If this is coming from the SimpleID app, need to make sure a user that may have existed before 
+        //can still create an org
+        if(appIsSimpleId) {
+          const userUuid = userData.Item.uuid;
+          let orgId = (appIsSimpleId) ?
+          await this.createOrganizationId(userUuid) : undefined
+          this.persist['sid'] = {};
+          this.persist.sid['org_id'] = orgId;
+        } else {
+          this.persist['sid'] = userData.Item.sid;
+        }
+      }
+      
       // TODO: Justin solution to persist (local storage in encrypted state so
       //       no need to hit AWS (faster, cheaper))
       console.log('DBG: DELETE this comment after debugging / system ready')

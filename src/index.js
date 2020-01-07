@@ -5,6 +5,7 @@ import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 import { handleData } from './actions/dataProcessing';
+let configuration;
 
 // Global for interfacing to SID Services
 // TODO: clean up
@@ -13,16 +14,6 @@ import { handleData } from './actions/dataProcessing';
 // TODO: ensure scope is window local (i.e. doesn't leak out of iframe)
 const sidServices = require('./utils/sidServices')
 let sidSvcs = undefined
-// TODO: cleanup this workaround for initialization order errors:
-export const getSidSvcs = () => {
-  const SID_ANALYTICS_APP_ID = '00000000000000000000000000000000'
-
-  if (!sidSvcs) {
-    sidSvcs = new sidServices.SidServices(SID_ANALYTICS_APP_ID)
-  }
-
-  return sidSvcs
-}
 
 console.log('Created global instance of SidServices')
 console.log('/////////////////////////////////////////////////////////////////')
@@ -39,6 +30,8 @@ connection.promise.then(parent => {
     setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
   });
   parent.getConfig().then((config) => {
+    console.log("CONFIG: ", config)
+    configuration = config;
     setGlobal({ config });
   });
 
@@ -46,19 +39,29 @@ connection.promise.then(parent => {
   //       or I didn't git pull it from the right spot--I was getting an error
   //       saying this isn't a function, so I've commented it out for now.
   //
-  // parent.dataToProcess().then((data) => {
-  //   console.log("DATA to Process: ")
-  //   console.log(data);
-  //   if(data) {
-  //     handleData(data)
-  //   }
-  // })
+  parent.dataToProcess().then((data) => {
+    console.log("DATA to Process: ")
+    console.log(data);
+    if(data) {
+      handleData(data)
+    }
+  })
 
   parent.checkType().then((type) => {
-    console.log("TYPE: ", type)
     setGlobal({ type });
   })
 });
+
+// TODO: cleanup this workaround for initialization order errors:
+export const getSidSvcs = () => {
+  const SID_ANALYTICS_APP_ID = configuration.appId//'00000000000000000000000000000000'
+
+  if (!sidSvcs) {
+    sidSvcs = new sidServices.SidServices(SID_ANALYTICS_APP_ID)
+  }
+
+  return sidSvcs
+}
 
 setGlobal({
   auth: true,
