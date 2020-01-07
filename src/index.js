@@ -15,8 +15,10 @@ const sidServices = require('./utils/sidServices')
 let sidSvcs = undefined
 // TODO: cleanup this workaround for initialization order errors:
 export const getSidSvcs = () => {
+  const SID_ANALYTICS_APP_ID = '00000000000000000000000000000000'
+
   if (!sidSvcs) {
-    sidSvcs = new sidServices.SidServices()
+    sidSvcs = new sidServices.SidServices(SID_ANALYTICS_APP_ID)
   }
 
   return sidSvcs
@@ -40,13 +42,17 @@ connection.promise.then(parent => {
     setGlobal({ config });
   });
 
-  parent.dataToProcess().then((data) => {
-    console.log("DATA to Process: ")
-    console.log(data);
-    if(data) {
-      handleData(data)
-    }
-  })
+  // TODO: Justin I think some code in another project is either not checked in
+  //       or I didn't git pull it from the right spot--I was getting an error
+  //       saying this isn't a function, so I've commented it out for now.
+  //
+  // parent.dataToProcess().then((data) => {
+  //   console.log("DATA to Process: ")
+  //   console.log(data);
+  //   if(data) {
+  //     handleData(data)
+  //   }
+  // })
 
   parent.checkType().then((type) => {
     console.log("TYPE: ", type)
