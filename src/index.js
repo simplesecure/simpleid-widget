@@ -5,7 +5,50 @@ import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 import { handleData } from './actions/dataProcessing';
+
 let configuration;
+
+const connection = connectToParent({
+  // Methods child is exposing to parent
+  methods: {
+    //
+  }
+});
+
+
+connection.promise.then(parent => {
+  
+  parent.checkAction().then(async (action) => {
+    //First check if this is a sign out request
+    if(action === 'sign-out') {
+      await localStorage.clear();
+      //window.location.reload();
+      parent.completeSignOut();
+      return;
+    } else {
+      //If not a sign out request, set the action appropriately
+      setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
+      parent.getConfig().then((config) => {
+        console.log("CONFIG: ", config)
+        configuration = config;
+        setGlobal({ config });
+      });
+    
+      parent.checkType().then((type) => {
+        setGlobal({ type });
+      })
+    
+      parent.dataToProcess().then((data) => {
+        console.log("DATA to Process: ")
+        console.log(data);
+        if(data) {
+          handleData(data)
+          parent.close();
+        }
+      })
+    }
+  });
+})
 
 // Global for interfacing to SID Services
 // TODO: clean up
@@ -17,40 +60,6 @@ let sidSvcs = undefined
 
 console.log('Created global instance of SidServices')
 console.log('/////////////////////////////////////////////////////////////////')
-
-const connection = connectToParent({
-  // Methods child is exposing to parent
-  methods: {
-    //
-  }
-});
-
-connection.promise.then(parent => {
-  parent.checkAction().then((action) => {
-    setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
-  });
-  parent.getConfig().then((config) => {
-    console.log("CONFIG: ", config)
-    configuration = config;
-    setGlobal({ config });
-  });
-
-  // TODO: Justin I think some code in another project is either not checked in
-  //       or I didn't git pull it from the right spot--I was getting an error
-  //       saying this isn't a function, so I've commented it out for now.
-  //
-  parent.dataToProcess().then((data) => {
-    console.log("DATA to Process: ")
-    console.log(data);
-    if(data) {
-      handleData(data)
-    }
-  })
-
-  parent.checkType().then((type) => {
-    setGlobal({ type });
-  })
-});
 
 // TODO: cleanup this workaround for initialization order errors:
 export const getSidSvcs = () => {
