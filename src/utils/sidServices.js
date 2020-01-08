@@ -381,7 +381,7 @@ export class SidServices
         //
         let orgId = (appIsSimpleId) ?
           await this.createOrganizationId(userUuid) : undefined
-
+        
         //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
         //
         const userDataRow = {
@@ -417,6 +417,8 @@ export class SidServices
         //
         if (appIsSimpleId) {
           userDataRow.sid['org_id'] = orgId
+          this.persist['sid'] = {};
+          this.persist.sid['org_id'] = orgId;
         }
 
         await this.tablePutWithIdpCredentials( userDataRow )
@@ -505,6 +507,9 @@ export class SidServices
           await this.createOrganizationId(userUuid) : undefined
           this.persist['sid'] = {};
           this.persist.sid['org_id'] = orgId;
+          userData['sid'] = {};
+          userData.sid['org_id'] = orgId;
+          await this.tablePutWithIdpCredentials( userData )
         } else {
           this.persist['sid'] = userData.Item.sid;
         }
