@@ -4,6 +4,8 @@ import Amplify from 'aws-amplify';
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
 
+const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
+
 // v4 = random. Might consider using v5 (namespace, in conjunction w/ app id)
 // see: https://github.com/kelektiv/node-uuid
 const uuidv4 = require('uuid/v4')
@@ -155,6 +157,10 @@ export class SidServices
 
   getEmail() {
     return this.persist.email
+  }
+
+  getAddress() {
+    return this.persist.address
   }
 
   async getWallet() {
@@ -677,6 +683,22 @@ export class SidServices
 
   }
 
+/******************************************************************************
+ *                                                                            *
+ * Non-SimpleID Wallet User Methods                                           *
+ *                                                                            *
+ ******************************************************************************/
+
+ persistNonSIDUserInfo(userInfo) {
+   console.log("NON SID USER INFO: ", userInfo);
+   //TODO: AC review. This feels super hacky, but might be the right way to handle it
+   localStorage.setItem(NON_SID_WALLET_USER_INFO, JSON.stringify(userInfo));
+ }
+
+ getNonSIDUserInfo() {
+   const userInfo = localStorage.getItem(NON_SID_WALLET_USER_INFO);
+   return JSON.parse(userInfo);
+ }
 
 /******************************************************************************
  *                                                                            *

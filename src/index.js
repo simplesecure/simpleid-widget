@@ -1,12 +1,10 @@
-import React, { setGlobal } from 'reactn';
+import React, { setGlobal, getGlobal } from 'reactn';
 import ReactDOM from 'react-dom';
 import './index.css';
 import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 import { handleData } from './actions/dataProcessing';
-
-let configuration;
 
 const connection = connectToParent({
   // Methods child is exposing to parent
@@ -17,7 +15,11 @@ const connection = connectToParent({
 
 
 connection.promise.then(parent => {
-  
+  parent.getConfig().then((config) => {
+    console.log("CONFIG: ", config)
+    setGlobal({ config });
+  });
+
   parent.checkAction().then(async (action) => {
     //First check if this is a sign out request
     if(action === 'sign-out') {
@@ -25,14 +27,15 @@ connection.promise.then(parent => {
       //window.location.reload();
       parent.completeSignOut();
       return;
-    } else {
+    } else if(action === 'sign-in-no-sid') {
+      parent.dataToProcess().then((userInfo) => {
+        getSidSvcs().persistNonSIDUserInfo(userInfo);
+        parent.close();
+        return;
+      })
+    } else  { 
       //If not a sign out request, set the action appropriately
       setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
-      parent.getConfig().then((config) => {
-        console.log("CONFIG: ", config)
-        configuration = config;
-        setGlobal({ config });
-      });
     
       parent.checkType().then((type) => {
         setGlobal({ type });
@@ -63,7 +66,10 @@ console.log('/////////////////////////////////////////////////////////////////')
 
 // TODO: cleanup this workaround for initialization order errors:
 export const getSidSvcs = () => {
-  const SID_ANALYTICS_APP_ID = configuration.appId//'00000000000000000000000000000000'
+  const { config } = getGlobal();
+  const { appId } = config;
+  
+  const SID_ANALYTICS_APP_ID = appId//'00000000000000000000000000000000'
 
   if (!sidSvcs) {
     sidSvcs = new sidServices.SidServices(SID_ANALYTICS_APP_ID)
