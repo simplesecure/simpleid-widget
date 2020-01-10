@@ -28,19 +28,19 @@ connection.promise.then(parent => {
       parent.completeSignOut();
       return;
     } else if(action === 'sign-in-no-sid') {
-      parent.dataToProcess().then((userInfo) => {
-        getSidSvcs().persistNonSIDUserInfo(userInfo);
+      parent.dataToProcess().then(async (userInfo) => {
+        await getSidSvcs().persistNonSIDUserInfo(userInfo);
         parent.close();
         return;
       })
-    } else  { 
+    } else  {
       //If not a sign out request, set the action appropriately
       setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
-    
+
       parent.checkType().then((type) => {
         setGlobal({ type });
       })
-    
+
       parent.dataToProcess().then((data) => {
         console.log("DATA to Process: ")
         console.log(data);
@@ -68,7 +68,7 @@ console.log('/////////////////////////////////////////////////////////////////')
 export const getSidSvcs = () => {
   const { config } = getGlobal();
   const { appId } = config;
-  
+
   const SID_ANALYTICS_APP_ID = appId//'00000000000000000000000000000000'
 
   if (!sidSvcs) {

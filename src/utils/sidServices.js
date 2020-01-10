@@ -49,6 +49,12 @@ const KEY_FARM_IDS = [
   'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
 ]
 
+/*******************************************************************************
+ * Test Switches - Remove / Disable in Production
+ ******************************************************************************/
+const TEST_SIGN_USER_UP_TO_NEW_APP = false
+
+
 // TODO: move this to dynamo / lambda system in milestone 2 (the max keys value so it's dynamic)
 //   - after moving we'll make these undefined and the lambda will set them for the user
 function getKeyAssignments() {
@@ -125,6 +131,10 @@ export class SidServices
     this.keyId2 = undefined
 
     this.appId = anAppId
+    this.appIsSimpleId = (this.appId === SID_ANALYTICS_APP_ID )
+
+    // Probably want to move this into this.persist below:
+    this.userUuid = undefined
 
     this.persist = {
       email: undefined,
@@ -354,8 +364,6 @@ export class SidServices
     // to see if they are authenticated into Cognito (i.e. have a valid token):
     const authenticated = await this.isAuthenticated()
 
-    const appIsSimpleId = (this.appId === SID_ANALYTICS_APP_ID)
-
     if (authenticated && this.signUpUserOnConfirm) {
       // Phase 2 of signUp flow:
       //////////////////////////
@@ -363,7 +371,7 @@ export class SidServices
       try {
         //  0. Generate uuid
         //
-        const userUuid = uuidv4()
+        this.userUuid = uuidv4()
 
         //  1. Generate keychain
         //
@@ -383,16 +391,16 @@ export class SidServices
           await this.encryptKeyAssignmentWithIdpCredentials(this.keyId2, shares[1])
 
         //  4. a)  Create and store entry in Organization Data (simple_id_org_data_v001)
-        //         the appIsSimpleId
+        //         the this.appIsSimpleId
         //
-        let orgId = (appIsSimpleId) ?
-          await this.createOrganizationId(userUuid) : undefined
-        
+        let orgId = (this.appIsSimpleId) ?
+          await this.createOrganizationId(this.userUuid) : undefined
+
         //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
         //
         const userDataRow = {
           // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
-          uuid: userUuid,
+          uuid: this.userUuid,
           email: this.persist.email,
           secretCipherText1: this.persist.secretCipherText1,
           secretCipherText2: this.persist.secretCipherText2,
@@ -400,6 +408,7 @@ export class SidServices
           sid: {},
           address: this.persist.address,
         }
+        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
         //
         // Special case. User is signing into Simple ID analytics and needs to be
         // part of an organization (org_id) etc. Two scenarios (only #1 is
@@ -421,12 +430,12 @@ export class SidServices
         //       2. Should we check for a uuid collision? (unlikely, but huge
         //          security fail if happens)
         //
-        if (appIsSimpleId) {
+        if (this.appIsSimpleId) {
           userDataRow.sid['org_id'] = orgId
           this.persist['sid'] = {};
           this.persist.sid['org_id'] = orgId;
         }
-
+        // Write this to the user data table:
         await this.tablePutWithIdpCredentials( userDataRow )
 
         //  4. c)  Create and store entry in Wallet to UUID map for this app
@@ -436,8 +445,8 @@ export class SidServices
         //       from the simple_id_cust_analytics_data_v001 table and use it
         //       to asymmetricly encrypt the user uuid. For now we just pop in
         //       the plain text uuid.
-        if (!appIsSimpleId) {
-          const plainTextUuid = userUuid
+        if (!this.appIsSimpleId) {
+          const plainTextUuid = this.userUuid
           const walletUuidMapRow = {
             wallet_address: this.persist.address,
             app_to_enc_uuid_map: {}
@@ -447,18 +456,14 @@ export class SidServices
           // TODO: Make this use Cognito to get write permission to the DB (for the
           //       time being we're using an AWS_SECRET):
           // TODO: Make this update / append when needed too (here it's new data so it's okay)
-          await this.writeToDynamoWithAwsSecret(
-            process.env.REACT_APP_UUID_TABLE,
-            walletUuidMapRow,
-          )
+          await this.walletToUuidMapTablePut(walletUuidMapRow)
         }
 
         //  4. d)  Create and store Wallet Analytics Data
         //         (simple_id_cust_analytics_data_v001)
         //
-        if (!appIsSimpleId) {
-          // TODO uncomment and handle analytics data
-          //const walletAnalyicsData = {}
+        if (!this.appIsSimpleId) {
+          await this.walletAnalyticsDataTableAddWalletForAnalyics()
         }
 
         //  5. Email / Save PDF secret
@@ -481,10 +486,11 @@ export class SidServices
 
       // 1. Fetch the encrypted secrets from Dynamo
       //
-      const userData = await this.tableGetWithIdpCredentials()
+      const userDataDbRow = await this.tableGetWithIdpCredentials()
+      const userData = userDataDbRow.Item
       console.log("USER DATA FROM EXISTING USER: ", userData);
-      this.persist.secretCipherText1 = userData.Item.secretCipherText1
-      this.persist.secretCipherText2 = userData.Item.secretCipherText2
+      this.persist.secretCipherText1 = userData.secretCipherText1
+      this.persist.secretCipherText2 = userData.secretCipherText2
 
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       //
@@ -502,25 +508,62 @@ export class SidServices
       const mnemonicStr = secretMnemonic.toString()
       this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
       this.persist.address = this.neverPersist.wallet.address
-      if(userData && userData.Item && userData.Item.sid && userData.Item.sid.org_id) {
-        this.persist.sid = userData && userData.Item && userData.Item.sid ? userData.Item.sid : null;
+
+      this.userUuid = userData.uuid
+
+      let userDataDbNeedsUpdate = false
+      // 4.1 Here Justin appears to be checking if a user has sid data and
+      //     adds that to the perstence model, otherwise he check if the app is
+      //     simpleID and creates and stores it in the User Data DB.
+      if(userData && userData.sid && userData.sid.org_id) {
+        this.persist.sid = userData && userData.sid ? userData.sid : null;
       } else {
-        //If this is coming from the SimpleID app, need to make sure a user that may have existed before 
+        //If this is coming from the SimpleID app, need to make sure a user that may have existed before
         //can still create an org
-        if(appIsSimpleId) {
-          const userUuid = userData.Item.uuid;
-          let orgId = (appIsSimpleId) ?
-          await this.createOrganizationId(userUuid) : undefined
+        if (this.appIsSimpleId) {
+          let orgId = (this.appIsSimpleId) ?
+            await this.createOrganizationId(this.userUuid) : undefined
           this.persist['sid'] = {};
           this.persist.sid['org_id'] = orgId;
           userData['sid'] = {};
           userData.sid['org_id'] = orgId;
-          await this.tablePutWithIdpCredentials( userData )
+          userDataDbNeedsUpdate = true
         } else {
-          this.persist['sid'] = userData.Item.sid;
+          this.persist['sid'] = userData.sid;
         }
       }
-      
+
+      // 5. If the user has never signed into this App before, we need to update
+      //    the appropriate tables with the user's data:
+      //
+      /* REMOVE Test code when working ****************************************/
+      const oldAppId = this.appId
+      if (TEST_SIGN_USER_UP_TO_NEW_APP) {
+        this.appId = `new-app-id-random-authd-${Date.now()}`
+      }
+      // See also: BEGIN REMOVE ~10 lines down
+      /* END REMOVE ***********************************************************/
+      if (!userData.apps.hasOwnProperty(this.appId)) {
+        console.log('First time logging into this app, updating associate DBs')
+        userData.apps[this.appId] = {}
+        userDataDbNeedsUpdate = true
+
+        const authenticatedUser = true
+        await this.signUserUpToNewApp(authenticatedUser)
+      }
+      // BEGIN REMOVE
+      // restore appId
+      this.appId = oldAppId
+      // END REMOVE
+
+
+      // 6. If we modified the User Data, update the DB version:
+      //
+      if (userDataDbNeedsUpdate) {
+        await this.tablePutWithIdpCredentials( userData )
+        userDataDbNeedsUpdate = false
+      }
+
       // TODO: Justin solution to persist (local storage in encrypted state so
       //       no need to hit AWS (faster, cheaper))
       console.log('DBG: DELETE this comment after debugging / system ready')
@@ -678,9 +721,48 @@ export class SidServices
    *         or Unauthenticated UUID table (depending on if they're using us for
    *         auth), and the Wallet Analytics Data table and Wallet to UUID Map
    *         table.
+   *
+   * TODO:
+   *       - Failure resistant db write methods.
+   *       - Concurrency and an await Promise.all () with handled
+   *         catch statements on individual promises.
    */
-  signUserUpToNewApp = async() => {
+  signUserUpToNewApp = async(isAuthenticatedUser) => {
+    console.log(`DBG: signUserUpToNewApp`)
+    console.log('-------------------------------------------------------------')
+    console.log(`  isAuthenticatedUser: ${isAuthenticatedUser}`)
+    console.log(`  this.appId: ${this.appId}`)
+    console.log(`  this.userUuid: ${this.userUuid}`)
+    console.log(`  address: ${this.persist.address}`)
 
+    if (isAuthenticatedUser) {
+      // 1.a) Update the User Data Table if the user is authenticated.
+      //
+      // We do this in the 2nd part of the sign in flow when the user
+      // answers a challenge but still need to do the other operations
+      // below.
+    } else {
+      // 1.b) Otherwise update the Unauthenticated UUID Table if the user is an
+      //      unauthenticated user.
+      //
+      console.log(`DBG: Appending ${this.appId} to ${this.userUuid}`)
+      await this.unauthenticatedUuidTableAppendAppId()
+    }
+
+    // 2. Update the Wallet Analytics Data table:
+    //
+    // TODO:
+    console.log('before walletAnalyticsDataTableAddWalletForAnalyics')
+    await this.walletAnalyticsDataTableAddWalletForAnalyics()
+    console.log('after walletAnalyticsDataTableAddWalletForAnalyics')
+
+    // 3. Update the Wallet to UUID Map table:
+    //
+    // TODO: need to encrypt the uuid with the app devs PK
+    //
+    const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
+     await this.walletToUuidMapTableAddCipherTextUuidForAppId(
+       this.persist.address, plainTextUuid )
   }
 
 /******************************************************************************
@@ -689,10 +771,129 @@ export class SidServices
  *                                                                            *
  ******************************************************************************/
 
- persistNonSIDUserInfo(userInfo) {
+ persistNonSIDUserInfo = async (userInfo) => {
+   if (this.appIsSimpleId) {
+     // We don't do this in Simple ID.
+     return
+   }
+
    console.log("NON SID USER INFO: ", userInfo);
+
+   const { email, address } = userInfo
+   this.persist.email = email
+   this.persist.address = address
+
+   // Check to see if this user exists in Unauthenticated UUID table (email key
+   // is also indexed):
+   const uuidResults = await this.unauthenticatedUuidTableQueryByEmail(email)
+   let userExists = false
+   if (uuidResults.Items.length === 1) {
+     userExists = true
+   } else if (uuidResults.Items.length !== 0) {
+     throw new Error('ERROR: collision with user in Simple ID unauth\'d user table.')
+   }
+
+   if (!userExists) {
+     // TODO Refactor to createUnauthenticatedUser
+     //
+     // The unauthenticated user does not exist in our data model. Initialize and
+     // create DB entries for them:
+     //
+     // 1. Create a uuid for this user and insert them into the
+     //    Unauthenticated UUID table:
+     //
+     // TODO:
+     //       - think about obfusicating the email due to the openness of this table.
+     //
+     this.userUuid = uuidv4()
+     const unauthenticatedUuidRowObj = {
+       uuid: this.userUuid,
+       email,
+       apps: [ this.appId ]
+     }
+     console.log('trying to put unauthenticatedUuidRowObj')
+     console.log(unauthenticatedUuidRowObj)
+     await this.unauthenticatedUuidTablePut(unauthenticatedUuidRowObj)
+     console.log('success')
+
+     // 2. Create an entry for them in the Wallet Analytics Data Table
+     //
+     await this.walletAnalyticsDataTableAddWalletForAnalyics()
+
+     // 3. Create an entry for them in the Wallet to UUID Map
+     //
+     // TODO: Fetch the public key for the row corresponding to this app_id
+     //       from the simple_id_cust_analytics_data_v001 table and use it
+     //       to asymmetricly encrypt the user uuid. For now we just pop in
+     //       the plain text uuid.
+     //
+     const plainTextUuid = this.userUuid
+     const walletUuidMapRowObj = {
+       wallet_address: address,
+       app_to_enc_uuid_map: {}
+     }
+     //
+     // TODO: Make this use Cognito to get write permission to the DB (for the
+     //       time being we're using an AWS_SECRET):
+     // TODO: Make this update / append when needed too (here it's new data so it's okay)
+     walletUuidMapRowObj.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
+     console.log('trying to put walletUuidMapRowObj')
+     console.log(walletUuidMapRowObj)
+     await this.walletToUuidMapTablePut(walletUuidMapRowObj)
+     console.log('success')
+   } else {
+     // TODO Refactor to persistUnauthenticatedUser
+     //
+     this.userUuid = uuidResults.Items[0].uuid
+     console.log('DBG: USER EXISTS, uuid = ')
+     console.log(this.userUuid)
+
+     // 1. Fetch the email & apps from the Unauthenticated UUID table and ensure
+     //    this app is listed.
+     //
+     const unauthdUuidRowObj =
+       await this.unauthenticatedUuidTableGetByUuid(this.userUuid)
+
+     console.log('Fetched unauthdUuidRowObj:')
+     console.log(JSON.stringify(unauthdUuidRowObj))
+
+     // BEGIN REMOVE
+     console.log('************************ REMOVE WHEN WORKING ***************')
+     console.log('* Faking a new AppId to build signUserUpToNewApp           *')
+     console.log('************************************************************')
+     const oldAppId = this.appId
+     if (TEST_SIGN_USER_UP_TO_NEW_APP) {
+       this.appId = `new-app-id-random-${Date.now()}`
+     }
+     // See also: BEGIN REMOVE ~10 lines down
+     // END REMOVE
+
+     if ( !unauthdUuidRowObj.Item.apps.includes(this.appId) ) {
+       console.log('New App ID detected, must add this app to tables ....')
+       // The App doesn't exist in the user's profile (this is the first time
+       // the user is using it). Update the Unauthenticated UUID table,
+       // Wallet Analytics Data table, and Wallet to UUID tables.
+       const authenticatedUser = false
+       await this.signUserUpToNewApp(authenticatedUser)
+     }
+
+     // BEGIN REMOVE
+     // restore appId
+     this.appId = oldAppId
+     // END REMOVE
+
+   }
+
+   // TODO: this needs to be obfuscated. It should also use a common method with
+   //       our other flow persistence. The data should also be stored in this.persist
+   //
+   // TODO: Justin, why not use SID_SVCS_LS_KEY and add a boolean to the object
+   //       indicating unauthenticatedUser (i.e. non wallet)?
+   //
    //TODO: AC review. This feels super hacky, but might be the right way to handle it
    localStorage.setItem(NON_SID_WALLET_USER_INFO, JSON.stringify(userInfo));
+
+
  }
 
  getNonSIDUserInfo() {
@@ -961,6 +1162,33 @@ export class SidServices
     })
   }
 
+  // Adapted from: https://stackoverflow.com/questions/51134296/dynamodb-how-to-query-a-global-secondary-index
+  tableGetBySecondaryIndex = async(aTable, anIndexName, aKeyName, aKeyValue) => {
+
+    const expressionAtrNameObj = {}
+    expressionAtrNameObj[`#${aKeyName}`] = aKeyName
+
+    var params = {
+      TableName : aTable,
+      IndexName : anIndexName,
+      KeyConditionExpression: `#${aKeyName} = :value`,
+      ExpressionAttributeNames: expressionAtrNameObj,
+      ExpressionAttributeValues: {
+          ':value': aKeyValue
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      docClientNonIdpCred.query(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve(data)
+        }
+      })
+    })
+  }
+
   tablePut = async (aTable, anObject) => {
     const params = {
       TableName: aTable,
@@ -1023,12 +1251,32 @@ export class SidServices
     )
   }
 
-  // TODO:
-  //   - unauthenticatedUuidTableGet
-  //   - unauthenticatedUuidTablePut
+  unauthenticatedUuidTableQueryByEmail = async (anEmail) => {
+    return this.tableGetBySecondaryIndex(
+      process.env.REACT_APP_UNAUTH_UUID_TABLE,
+      process.env.REACT_APP_UNAUTH_UUID_TABLE_INDEX,
+      process.env.REACT_APP_UNAUTH_UUID_TABLE_SK,
+      anEmail
+    )
+  }
 
-  // TODO: AC finish when I get a moment (for now we'll hack it with inefficient get/put)
-  //
+  unauthenticatedUuidTableGetByUuid = async (aUuid) => {
+    return this.tableGet(
+      process.env.REACT_APP_UNAUTH_UUID_TABLE,
+      process.env.REACT_APP_UNAUTH_UUID_TABLE_PK,
+      aUuid
+    )
+  }
+
+  // TODO: change this to use the Cognito unauthenticated role perhaps.
+  //       - look into ramifications / sensibility of that move
+  unauthenticatedUuidTablePut = async (anUnauthenticatedUuidRowObj) => {
+    return this.tablePut(
+      process.env.REACT_APP_UNAUTH_UUID_TABLE,
+      anUnauthenticatedUuidRowObj
+    )
+  }
+
   // Reference this for docClient API documentation:
   //   - https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/DynamoDB/DocumentClient.html#update-property
   //
@@ -1059,35 +1307,160 @@ export class SidServices
   //     })
   //   })
   // }
-  // //
-  // // Reference this to make the list_append function work in update set eqn:
-  // //   - https://stackoverflow.com/questions/44219664/inserting-a-nested-attributes-array-element-in-dynamodb-table-without-retrieving
-  // //   - https://stackoverflow.com/questions/41400538/append-a-new-object-to-a-json-array-in-dynamodb-using-nodejs
-  // //   -
-  // tableListAppend = async(aPrimKeyObj, anArrayKey, anArrayValue) => {
-  //   const exprAttr = ':value'
-  //   const updateExpr = `set ${aKey} = ${exprAttr}`
-  //   const expressionAttrValues = {}
-  //   expressionAttrValues[exprAttr] = aValue
-  //
-  //   const params = {
-  //     TableName: aTable,
-  //     Key: aPrimKeyObj,
-  //     UpdateExpression: updateExpr,
-  //     ExressionAttributeValues: expressionAttrValues,
-  //     ReturnValues:"UPDATE_NEW"
-  //   }
-  //
-  //   return new Promise((resolve, reject) => {
-  //     docClientNonIdpCred.update(params, (err, data) => {
-  //       if (err) {
-  //         reject(err)
-  //       } else {
-  //         resolve(data)
-  //       }
-  //     })
-  //   })
-  // }
+
+  // Reference this to make the list_append function work in update set eqn:
+  //   - https://stackoverflow.com/questions/44219664/inserting-a-nested-attributes-array-element-in-dynamodb-table-without-retrieving
+  //   - https://stackoverflow.com/questions/41400538/append-a-new-object-to-a-json-array-in-dynamodb-using-nodejs
+  //   -
+  tableUpdateListAppend = async (aTable, aPrimKeyObj, anArrayKey, anArrayValue) => {
+    console.log('DBG: tableUpdateListAppend')
+    console.log(`  aTable:${aTable},\n  aPrimKeyObj:${aPrimKeyObj},\n  anArrayKey:${anArrayKey},\n  anArrayValue:${anArrayValue}`)
+    const exprAttr = ':eleValue'
+    const updateExpr = `set ${anArrayKey} = list_append(${anArrayKey}, ${exprAttr})`
+
+    const params = {
+      TableName: aTable,
+      Key: aPrimKeyObj,
+      UpdateExpression: updateExpr,
+      ExpressionAttributeValues: {
+        ':eleValue': [anArrayValue]
+      },
+      ReturnValues:"NONE"
+    }
+
+    console.log('DBG: params')
+    console.log(params)
+
+    return new Promise((resolve, reject) => {
+      docClientNonIdpCred.update(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve(data)
+        }
+      })
+    })
+  }
+
+  /* tableUpdateAppendNestedObjectProperty:
+   *
+   * Notes: Adds a new property to an object in a Dynamo Table row. Consider
+   *        this example row:
+   *        {
+   *          <some primary key>: <some value>,
+   *          'my_object_name': {
+   *            'key1': 'value1',
+   *            'key2': 'value2'
+   *          }
+   *        }
+   *
+   *        Calling this method with:
+   *          aPrimKeyObj = {<some primary key>: <some value>}
+   *          aNestedObjKey = 'my_object_name'
+   *          aPropName = 'key3'
+   *          aPropValue = 'value3'
+   *
+   *        Would result in Dynamo containing this row:
+   *        {
+   *          <some primary key>: <some value>,
+   *          'my_object_name': {
+   *            'key1': 'value1',
+   *            'key2': 'value2',
+   *            'key3': 'value3'
+   *          }
+   *        }
+   *
+   * Further Reading:
+   *   - https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+   *   - https://stackoverflow.com/questions/51911927/update-nested-map-dynamodb
+   *       - This SO answer is decent as it mentions schema design complexity being a
+   *         problem and limitations in Dynamo
+   *
+   * TODO:
+   *   - Bolting a simple parse to this could result in extended nesting
+   *     assignments, i.e. pass in something like this for aPropName
+   *        'my_object_name.key1.value1'
+   *     then separate on '.' and convert to arbitrary length prop names.
+   *   - Consider adding existence test logic.
+   */
+  tableUpdateAppendNestedObjectProperty = async (
+    aTable, aPrimKeyObj, aNestedObjKey, aPropName, aPropValue) => {
+
+    console.log('DBG: tableUpdateAppendObjectProperty')
+    console.log(`  aTable:${aTable}`)
+    console.log(`  aPrimKeyObj:${JSON.stringify(aPrimKeyObj)}`)
+    console.log(`  aNestedObjKey:${aNestedObjKey}`)
+    console.log(`  aPropName:${aPropName}`)
+    console.log(`  aPropValue:${aPropValue}`)
+
+    const params = {
+      TableName: aTable,
+      Key: aPrimKeyObj,
+      UpdateExpression: 'set #objName.#objPropName = :propValue',
+      ExpressionAttributeNames: {
+        '#objName': aNestedObjKey,
+        '#objPropName': aPropName
+      },
+      ExpressionAttributeValues: {
+        ':propValue': aPropValue
+      },
+      ReturnValues: 'NONE'
+    }
+
+    return new Promise((resolve, reject) => {
+      docClientNonIdpCred.update(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve(data)
+        }
+      })
+    })
+  }
+
+  unauthenticatedUuidTableAppendAppId = async (
+    aUuid=this.userUuid, anAppId=this.appId) => {
+
+    const primKeyObj = {}
+    primKeyObj[ process.env.REACT_APP_UNAUTH_UUID_TABLE_PK ] = aUuid
+
+    return this.tableUpdateListAppend(
+      process.env.REACT_APP_UNAUTH_UUID_TABLE,
+      primKeyObj,
+      'apps',
+      anAppId
+    )
+  }
+
+  walletToUuidMapTableAddCipherTextUuidForAppId = async (
+    aWalletAddress, aCipherTextUuid, anAppId=this.appId) => {
+
+    const primKeyObj = {}
+    primKeyObj[ process.env.REACT_APP_UUID_TABLE_PK ] = aWalletAddress
+
+    return this.tableUpdateAppendNestedObjectProperty(
+      process.env.REACT_APP_UUID_TABLE,
+      primKeyObj,
+      'app_to_enc_uuid_map',
+      anAppId,
+      aCipherTextUuid
+    )
+  }
+
+  walletAnalyticsDataTableAddWalletForAnalyics = async (
+    aWalletAddress=this.persist.address, anAppId=this.appId) => {
+
+    const primKeyObj = {}
+    primKeyObj[ process.env.REACT_APP_AD_TABLE_PK] = anAppId
+
+    return this.tableUpdateAppendNestedObjectProperty(
+      process.env.REACT_APP_AD_TABLE,
+      primKeyObj,
+      'analytics',
+      aWalletAddress,
+      {}
+    )
+  }
 
 
 
