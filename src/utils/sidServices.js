@@ -445,7 +445,10 @@ export class SidServices
         //       from the simple_id_cust_analytics_data_v001 table and use it
         //       to asymmetricly encrypt the user uuid. For now we just pop in
         //       the plain text uuid.
-        if (!this.appIsSimpleId) {
+
+        //TODO: Review this with AC 
+
+        // if (!this.appIsSimpleId) {
           const plainTextUuid = this.userUuid
           const walletUuidMapRow = {
             wallet_address: this.persist.address,
@@ -457,14 +460,17 @@ export class SidServices
           //       time being we're using an AWS_SECRET):
           // TODO: Make this update / append when needed too (here it's new data so it's okay)
           await this.walletToUuidMapTablePut(walletUuidMapRow)
-        }
+        // }
 
         //  4. d)  Create and store Wallet Analytics Data
         //         (simple_id_cust_analytics_data_v001)
         //
-        if (!this.appIsSimpleId) {
+
+        //TODO: Review this with AC 
+
+        // if (!this.appIsSimpleId) {
           await this.walletAnalyticsDataTableAddWalletForAnalyics()
-        }
+        // }
 
         //  5. Email / Save PDF secret
         // TODO: Justin solution to share w/ user
@@ -580,7 +586,6 @@ export class SidServices
         console.log('ERROR persisting SID services data to local store.')
       }
     }
-
     return authenticated;
   }
 
@@ -1404,8 +1409,10 @@ export class SidServices
       ExpressionAttributeValues: {
         ':propValue': aPropValue
       },
-      ReturnValues: 'NONE'
+      ReturnValues: 'UPDATED_NEW'
     }
+
+    console.log("UPDATE PARAMS: ", params);
 
     return new Promise((resolve, reject) => {
       docClientNonIdpCred.update(params, (err, data) => {
