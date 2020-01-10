@@ -255,7 +255,7 @@ export class SidServices
   */
   signInOrUp = async (anEmail, anAppId) => {
     // If the user is already authenticated, then skip this function.
-    const authenticated = await this.isAuthenticated()
+    const authenticated = await this.isAuthenticated(anEmail)
     if (authenticated) {
       // TODO: Might need to handle the UI (i.e. waiting on challenge is not
       //       needed if we're returning here.)
@@ -446,7 +446,7 @@ export class SidServices
         //       to asymmetricly encrypt the user uuid. For now we just pop in
         //       the plain text uuid.
 
-        //TODO: Review this with AC 
+        //TODO: Review this with AC
 
         // if (!this.appIsSimpleId) {
           const plainTextUuid = this.userUuid
@@ -466,7 +466,7 @@ export class SidServices
         //         (simple_id_cust_analytics_data_v001)
         //
 
-        //TODO: Review this with AC 
+        //TODO: Review this with AC
 
         // if (!this.appIsSimpleId) {
           await this.walletAnalyticsDataTableAddWalletForAnalyics()
@@ -589,11 +589,18 @@ export class SidServices
     return authenticated;
   }
 
-  isAuthenticated = async () => {
+  isAuthenticated = async (anEmail=undefined) => {
     try {
-      await Auth.currentSession();
+      const session = await Auth.currentSession();
+
+      const tokenEmail = session.idToken.email
+      if (anEmail && (anEmail !== tokenEmail)) {
+        throw 'Stored token is for different user. Returning false for isAuthenticated.'
+      }
+
       return true;
-    } catch {
+    } catch (suppressedError) {
+      console.log(`WARN: Suppressing error in isAuthenticated.\n${suppressedError}`)
       return false;
     }
   }
