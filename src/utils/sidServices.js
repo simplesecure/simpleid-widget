@@ -1,6 +1,17 @@
 import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
 
+import { walletAnalyticsDataTablePut,
+         walletToUuidMapTablePut,
+         organizationDataTableGet,
+         organizationDataTablePut,
+         unauthenticatedUuidTableQueryByEmail,
+         unauthenticatedUuidTableGetByUuid,
+         unauthenticatedUuidTablePut,
+         unauthenticatedUuidTableAppendAppId,
+         walletToUuidMapTableAddCipherTextUuidForAppId,
+         walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
+
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
 
@@ -27,17 +38,7 @@ Amplify.configure({
   Auth: amplifyAuthObj
 });
 
-// TODO TODO TODO TODO
-// This is for quick dev, remove this and use Cognito to assign role based access
-// through IDP (at least within the iFrame) lest we mess things up with
-// confliting perms and excess access:
-//
-AWS.config.update({
-  accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
-  region: process.env.REACT_APP_REGION
-})
-const docClientNonIdpCred = new AWS.DynamoDB.DocumentClient()
+AWS.config.update({ region: process.env.REACT_APP_REGION })
 
 
 const SID_ANALYTICS_APP_ID = '00000000000000000000000000000000'
@@ -459,7 +460,7 @@ export class SidServices
           // TODO: Make this use Cognito to get write permission to the DB (for the
           //       time being we're using an AWS_SECRET):
           // TODO: Make this update / append when needed too (here it's new data so it's okay)
-          await this.walletToUuidMapTablePut(walletUuidMapRow)
+          await walletToUuidMapTablePut(walletUuidMapRow)
         // }
 
         //  4. d)  Create and store Wallet Analytics Data
@@ -468,9 +469,8 @@ export class SidServices
 
         //TODO: Review this with AC
 
-        // if (!this.appIsSimpleId) {
-          await this.walletAnalyticsDataTableAddWalletForAnalytics()
-        // }
+        await walletAnalyticsDataTableAddWalletForAnalytics(
+          this.persist.address, this.appId)
 
         //  5. Email / Save PDF secret
         // TODO: Justin solution to share w/ user
@@ -595,7 +595,7 @@ export class SidServices
 
       const tokenEmail = session.idToken.email
       if (anEmail && (anEmail !== tokenEmail)) {
-        throw 'Stored token is for different user. Returning false for isAuthenticated.'
+        throw new Error('Stored token is for different user. Returning false for isAuthenticated.')
       }
 
       return true;
@@ -644,7 +644,7 @@ export class SidServices
     }
 
     try {
-      await this.organizationDataTablePut(organizationDataRowObj)
+      await organizationDataTablePut(organizationDataRowObj)
     } catch(error) {
       throw Error(`ERROR: Creating organization id.\n${error}`)
     }
@@ -675,9 +675,9 @@ export class SidServices
     //
     try {
       // TODO: See TODO.3 above!
-      const data = await this.organizationDataTableGet(anOrgId)
+      const data = await organizationDataTableGet(anOrgId)
       data.Item.apps[appId] = anAppName
-      await this.organizationDataTablePut(data.Item)
+      await organizationDataTablePut(data.Item)
     } catch (error) {
       throw new Error(`ERROR: Failed to update apps in Organization Data table.\n${error}`)
     }
@@ -699,7 +699,7 @@ export class SidServices
           utc: Date.now()
         }
       }
-      await this.walletAnalyticsDataTablePut(walletAnalyticsRowObj)
+      await walletAnalyticsDataTablePut(walletAnalyticsRowObj)
     } catch (error) {
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
@@ -758,7 +758,7 @@ export class SidServices
       //      unauthenticated user.
       //
       console.log(`DBG: Appending ${this.appId} to ${this.userUuid}`)
-      await this.unauthenticatedUuidTableAppendAppId()
+      await unauthenticatedUuidTableAppendAppId(this.userUuid, this.appId)
     }
 
     // 2. Update the Wallet Analytics Data table:
@@ -773,8 +773,8 @@ export class SidServices
     // TODO: need to encrypt the uuid with the app devs PK
     //
     const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
-     await this.walletToUuidMapTableAddCipherTextUuidForAppId(
-       this.persist.address, plainTextUuid )
+     await walletToUuidMapTableAddCipherTextUuidForAppId(
+       this.persist.address, plainTextUuid, this.appId)
   }
 
 /******************************************************************************
@@ -797,7 +797,7 @@ export class SidServices
 
    // Check to see if this user exists in Unauthenticated UUID table (email key
    // is also indexed):
-   const uuidResults = await this.unauthenticatedUuidTableQueryByEmail(email)
+   const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
    let userExists = false
    if (uuidResults.Items.length === 1) {
      userExists = true
@@ -825,7 +825,7 @@ export class SidServices
      }
      console.log('trying to put unauthenticatedUuidRowObj')
      console.log(unauthenticatedUuidRowObj)
-     await this.unauthenticatedUuidTablePut(unauthenticatedUuidRowObj)
+     await unauthenticatedUuidTablePut(unauthenticatedUuidRowObj)
      console.log('success')
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
@@ -851,7 +851,7 @@ export class SidServices
      walletUuidMapRowObj.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
      console.log('trying to put walletUuidMapRowObj')
      console.log(walletUuidMapRowObj)
-     await this.walletToUuidMapTablePut(walletUuidMapRowObj)
+     await walletToUuidMapTablePut(walletUuidMapRowObj)
      console.log('success')
    } else {
      // TODO Refactor to persistUnauthenticatedUser
@@ -864,7 +864,7 @@ export class SidServices
      //    this app is listed.
      //
      const unauthdUuidRowObj =
-       await this.unauthenticatedUuidTableGetByUuid(this.userUuid)
+       await unauthenticatedUuidTableGetByUuid(this.userUuid)
 
      console.log('Fetched unauthdUuidRowObj:')
      console.log(JSON.stringify(unauthdUuidRowObj))
@@ -1155,327 +1155,6 @@ export class SidServices
   tableUpdateWithIdpCredentials = async () => {
     // TODO: a fast efficient update of a dynamo table auth'd with IDP creds.
   }
-
-  tableGet = async (aTable, aKeyName, aKeyValue) => {
-    const params = {
-      TableName: aTable,
-      Key: {}
-    }
-    params.Key[aKeyName] = aKeyValue
-
-    return new Promise((resolve, reject) => {
-      docClientNonIdpCred.get(params, (err, data) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(data)
-        }
-      })
-    })
-  }
-
-  // Adapted from: https://stackoverflow.com/questions/51134296/dynamodb-how-to-query-a-global-secondary-index
-  tableGetBySecondaryIndex = async(aTable, anIndexName, aKeyName, aKeyValue) => {
-
-    const expressionAtrNameObj = {}
-    expressionAtrNameObj[`#${aKeyName}`] = aKeyName
-
-    var params = {
-      TableName : aTable,
-      IndexName : anIndexName,
-      KeyConditionExpression: `#${aKeyName} = :value`,
-      ExpressionAttributeNames: expressionAtrNameObj,
-      ExpressionAttributeValues: {
-          ':value': aKeyValue
-      }
-    }
-
-    return new Promise((resolve, reject) => {
-      docClientNonIdpCred.query(params, (err, data) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(data)
-        }
-      })
-    })
-  }
-
-  tablePut = async (aTable, anObject) => {
-    const params = {
-      TableName: aTable,
-      Item: anObject
-    }
-
-    return new Promise((resolve, reject) => {
-      docClientNonIdpCred.put(params, (err, data) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(data)
-        }
-      })
-    })
-  }
-
-  walletAnalyticsDataTableGet = async (anAppId) => {
-    return this.tableGet(
-      process.env.REACT_APP_AD_TABLE,
-      process.env.REACT_APP_AD_TABLE_PK,
-      anAppId
-    )
-  }
-
-  walletAnalyticsDataTablePut = async (anWalletAnalyticsRowObj) => {
-    return this.tablePut(
-      process.env.REACT_APP_AD_TABLE,
-      anWalletAnalyticsRowObj
-    )
-  }
-
-  walletToUuidMapTableGet = async (aWalletAddress) => {
-    return this.tableGet(
-      process.env.REACT_APP_UUID_TABLE,
-      process.env.REACT_APP_UUID_TABLE_PK,
-      aWalletAddress
-    )
-  }
-
-  walletToUuidMapTablePut = async (aWalletToUuidMapRowObj) => {
-    return this.tablePut(
-      process.env.REACT_APP_UUID_TABLE,
-      aWalletToUuidMapRowObj
-    )
-  }
-
-  organizationDataTableGet = async (anOrgId) => {
-    return this.tableGet(
-      process.env.REACT_APP_ORG_TABLE,
-      process.env.REACT_APP_ORG_TABLE_PK,
-      anOrgId
-    )
-  }
-
-  organizationDataTablePut = async (aOrganizationDataRowObj) => {
-    return this.tablePut(
-      process.env.REACT_APP_ORG_TABLE,
-      aOrganizationDataRowObj
-    )
-  }
-
-  unauthenticatedUuidTableQueryByEmail = async (anEmail) => {
-    return this.tableGetBySecondaryIndex(
-      process.env.REACT_APP_UNAUTH_UUID_TABLE,
-      process.env.REACT_APP_UNAUTH_UUID_TABLE_INDEX,
-      process.env.REACT_APP_UNAUTH_UUID_TABLE_SK,
-      anEmail
-    )
-  }
-
-  unauthenticatedUuidTableGetByUuid = async (aUuid) => {
-    return this.tableGet(
-      process.env.REACT_APP_UNAUTH_UUID_TABLE,
-      process.env.REACT_APP_UNAUTH_UUID_TABLE_PK,
-      aUuid
-    )
-  }
-
-  // TODO: change this to use the Cognito unauthenticated role perhaps.
-  //       - look into ramifications / sensibility of that move
-  unauthenticatedUuidTablePut = async (anUnauthenticatedUuidRowObj) => {
-    return this.tablePut(
-      process.env.REACT_APP_UNAUTH_UUID_TABLE,
-      anUnauthenticatedUuidRowObj
-    )
-  }
-
-  // Reference this for docClient API documentation:
-  //   - https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/DynamoDB/DocumentClient.html#update-property
-  //
-  // Reference this example of the use of update:
-  //   - https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GettingStarted.NodeJs.03.html
-  //
-  // tableUpdate = async (aPrimKeyObj, aKey, aValue) => {
-  //   const exprAttr = ':value'
-  //   const updateExpr = `set ${aKey} = ${exprAttr}`
-  //   const expressionAttrValues = {}
-  //   expressionAttrValues[exprAttr] = aValue
-  //
-  //   const params = {
-  //     TableName: aTable,
-  //     Key: aPrimKeyObj,
-  //     UpdateExpression: updateExpr,
-  //     ExressionAttributeValues: expressionAttrValues,
-  //     ReturnValues:"UPDATE_NEW"
-  //   }
-  //
-  //   return new Promise((resolve, reject) => {
-  //     docClientNonIdpCred.update(params, (err, data) => {
-  //       if (err) {
-  //         reject(err)
-  //       } else {
-  //         resolve(data)
-  //       }
-  //     })
-  //   })
-  // }
-
-  // Reference this to make the list_append function work in update set eqn:
-  //   - https://stackoverflow.com/questions/44219664/inserting-a-nested-attributes-array-element-in-dynamodb-table-without-retrieving
-  //   - https://stackoverflow.com/questions/41400538/append-a-new-object-to-a-json-array-in-dynamodb-using-nodejs
-  //   -
-  tableUpdateListAppend = async (aTable, aPrimKeyObj, anArrayKey, anArrayValue) => {
-    console.log('DBG: tableUpdateListAppend')
-    console.log(`  aTable:${aTable},\n  aPrimKeyObj:${aPrimKeyObj},\n  anArrayKey:${anArrayKey},\n  anArrayValue:${anArrayValue}`)
-    const exprAttr = ':eleValue'
-    const updateExpr = `set ${anArrayKey} = list_append(${anArrayKey}, ${exprAttr})`
-
-    const params = {
-      TableName: aTable,
-      Key: aPrimKeyObj,
-      UpdateExpression: updateExpr,
-      ExpressionAttributeValues: {
-        ':eleValue': [anArrayValue]
-      },
-      ReturnValues:"NONE"
-    }
-
-    console.log('DBG: params')
-    console.log(params)
-
-    return new Promise((resolve, reject) => {
-      docClientNonIdpCred.update(params, (err, data) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(data)
-        }
-      })
-    })
-  }
-
-  /* tableUpdateAppendNestedObjectProperty:
-   *
-   * Notes: Adds a new property to an object in a Dynamo Table row. Consider
-   *        this example row:
-   *        {
-   *          <some primary key>: <some value>,
-   *          'my_object_name': {
-   *            'key1': 'value1',
-   *            'key2': 'value2'
-   *          }
-   *        }
-   *
-   *        Calling this method with:
-   *          aPrimKeyObj = {<some primary key>: <some value>}
-   *          aNestedObjKey = 'my_object_name'
-   *          aPropName = 'key3'
-   *          aPropValue = 'value3'
-   *
-   *        Would result in Dynamo containing this row:
-   *        {
-   *          <some primary key>: <some value>,
-   *          'my_object_name': {
-   *            'key1': 'value1',
-   *            'key2': 'value2',
-   *            'key3': 'value3'
-   *          }
-   *        }
-   *
-   * Further Reading:
-   *   - https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
-   *   - https://stackoverflow.com/questions/51911927/update-nested-map-dynamodb
-   *       - This SO answer is decent as it mentions schema design complexity being a
-   *         problem and limitations in Dynamo
-   *
-   * TODO:
-   *   - Bolting a simple parse to this could result in extended nesting
-   *     assignments, i.e. pass in something like this for aPropName
-   *        'my_object_name.key1.value1'
-   *     then separate on '.' and convert to arbitrary length prop names.
-   *   - Consider adding existence test logic.
-   */
-  tableUpdateAppendNestedObjectProperty = async (
-    aTable, aPrimKeyObj, aNestedObjKey, aPropName, aPropValue) => {
-
-    console.log('DBG: tableUpdateAppendObjectProperty')
-    console.log(`  aTable:${aTable}`)
-    console.log(`  aPrimKeyObj:${JSON.stringify(aPrimKeyObj)}`)
-    console.log(`  aNestedObjKey:${aNestedObjKey}`)
-    console.log(`  aPropName:${aPropName}`)
-    console.log(`  aPropValue:${aPropValue}`)
-
-    const params = {
-      TableName: aTable,
-      Key: aPrimKeyObj,
-      UpdateExpression: 'set #objName.#objPropName = :propValue',
-      ExpressionAttributeNames: {
-        '#objName': aNestedObjKey,
-        '#objPropName': aPropName
-      },
-      ExpressionAttributeValues: {
-        ':propValue': aPropValue
-      },
-      ReturnValues: 'UPDATED_NEW'
-    }
-
-    console.log("UPDATE PARAMS: ", params);
-
-    return new Promise((resolve, reject) => {
-      docClientNonIdpCred.update(params, (err, data) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(data)
-        }
-      })
-    })
-  }
-
-  unauthenticatedUuidTableAppendAppId = async (
-    aUuid=this.userUuid, anAppId=this.appId) => {
-
-    const primKeyObj = {}
-    primKeyObj[ process.env.REACT_APP_UNAUTH_UUID_TABLE_PK ] = aUuid
-
-    return this.tableUpdateListAppend(
-      process.env.REACT_APP_UNAUTH_UUID_TABLE,
-      primKeyObj,
-      'apps',
-      anAppId
-    )
-  }
-
-  walletToUuidMapTableAddCipherTextUuidForAppId = async (
-    aWalletAddress, aCipherTextUuid, anAppId=this.appId) => {
-
-    const primKeyObj = {}
-    primKeyObj[ process.env.REACT_APP_UUID_TABLE_PK ] = aWalletAddress
-
-    return this.tableUpdateAppendNestedObjectProperty(
-      process.env.REACT_APP_UUID_TABLE,
-      primKeyObj,
-      'app_to_enc_uuid_map',
-      anAppId,
-      aCipherTextUuid
-    )
-  }
-
-  walletAnalyticsDataTableAddWalletForAnalytics = async (
-    aWalletAddress=this.persist.address, anAppId=this.appId) => {
-
-    const primKeyObj = {}
-    primKeyObj[ process.env.REACT_APP_AD_TABLE_PK] = anAppId
-
-    return this.tableUpdateAppendNestedObjectProperty(
-      process.env.REACT_APP_AD_TABLE,
-      primKeyObj,
-      'analytics',
-      aWalletAddress,
-      {}
-    )
-  }
-
 
 
   //
