@@ -764,9 +764,7 @@ export class SidServices
     // 2. Update the Wallet Analytics Data table:
     //
     // TODO:
-    console.log('before walletAnalyticsDataTableAddWalletForAnalytics')
-    await this.walletAnalyticsDataTableAddWalletForAnalytics()
-    console.log('after walletAnalyticsDataTableAddWalletForAnalytics')
+    await walletAnalyticsDataTableAddWalletForAnalytics()
 
     // 3. Update the Wallet to UUID Map table:
     //
@@ -830,7 +828,7 @@ export class SidServices
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
      //
-     await this.walletAnalyticsDataTableAddWalletForAnalytics()
+     await walletAnalyticsDataTableAddWalletForAnalytics()
 
      // 3. Create an entry for them in the Wallet to UUID Map
      //

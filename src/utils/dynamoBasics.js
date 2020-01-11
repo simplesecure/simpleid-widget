@@ -15,18 +15,43 @@ AWS.config.update({
 //
 const _docClientAK = new AWS.DynamoDB.DocumentClient()
 
+const DEBUG_DYNAMO = ( process.env.REACT_APP_DEBUG_DYNAMO ||
+                       process.env.DEBUG_DYNAMO) ? true : false
+
+function debugLog(anOperation, params, error) {
+  try {
+    if (DEBUG_DYNAMO) {
+      const indentSpaces = 4
+      let dbgMsg = `${anOperation} operation failed.\n`
+      dbgMsg += '========================================\n'
+      dbgMsg += 'params:\n'
+      dbgMsg += '--------------------\n'
+      dbgMsg += JSON.stringify(params, 0, indentSpaces) + '\n'
+      dbgMsg += '\n'
+      dbgMsg += 'error:\n'
+      dbgMsg += '--------------------\n'
+      dbgMsg += '  ' + String(error) + '\n'
+      dbgMsg += '\n'
+      
+      console.log(dbgMsg)
+    }
+  } catch(suppressedError) {}
+}
 
 
 export async function tableGet(aTable, aKeyName, aKeyValue) {
   const params = {
     TableName: aTable,
-    Key: {}
+    Key: {
+      [ aKeyName ] : aKeyValue
+    }
   }
-  params.Key[aKeyName] = aKeyValue
 
   return new Promise((resolve, reject) => {
     _docClientAK.get(params, (err, data) => {
       if (err) {
+        debugLog('tableGet', params, err)
+
         reject(err)
       } else {
         resolve(data)
@@ -44,6 +69,8 @@ export async function tablePut(aTable, anObject) {
   return new Promise((resolve, reject) => {
     _docClientAK.put(params, (err, data) => {
       if (err) {
+        debugLog('tablePut', params, err)
+
         reject(err)
       } else {
         resolve(data)
@@ -58,8 +85,9 @@ export async function tablePut(aTable, anObject) {
 //
 export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aKeyValue) {
 
-  const expressionAtrNameObj = {}
-  expressionAtrNameObj[`#${aKeyName}`] = aKeyName
+  const expressionAtrNameObj = {
+    [ `#${aKeyName}` ] : aKeyName
+  }
 
   var params = {
     TableName : aTable,
@@ -74,6 +102,8 @@ export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aK
   return new Promise((resolve, reject) => {
     _docClientAK.query(params, (err, data) => {
       if (err) {
+        debugLog('tableGetBySecondaryIndex', params, err)
+
         reject(err)
       } else {
         resolve(data)
@@ -87,8 +117,6 @@ export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aK
 //   - https://stackoverflow.com/questions/41400538/append-a-new-object-to-a-json-array-in-dynamodb-using-nodejs
 //   -
 export async function tableUpdateListAppend(aTable, aPrimKeyObj, anArrayKey, anArrayValue) {
-  console.log('DBG: tableUpdateListAppend')
-  console.log(`  aTable:${aTable},\n  aPrimKeyObj:${aPrimKeyObj},\n  anArrayKey:${anArrayKey},\n  anArrayValue:${anArrayValue}`)
   const exprAttr = ':eleValue'
   const updateExpr = `set ${anArrayKey} = list_append(${anArrayKey}, ${exprAttr})`
 
@@ -102,12 +130,11 @@ export async function tableUpdateListAppend(aTable, aPrimKeyObj, anArrayKey, anA
     ReturnValues:"NONE"
   }
 
-  console.log('DBG: params')
-  console.log(params)
-
   return new Promise((resolve, reject) => {
     _docClientAK.update(params, (err, data) => {
       if (err) {
+        debugLog('tableUpdateListAppend', params, err)
+
         reject(err)
       } else {
         resolve(data)
@@ -160,13 +187,6 @@ export async function tableUpdateListAppend(aTable, aPrimKeyObj, anArrayKey, anA
 export async function tableUpdateAppendNestedObjectProperty(
   aTable, aPrimKeyObj, aNestedObjKey, aPropName, aPropValue) {
 
-  console.log('DBG: tableUpdateAppendObjectProperty')
-  console.log(`  aTable:${aTable}`)
-  console.log(`  aPrimKeyObj:${JSON.stringify(aPrimKeyObj)}`)
-  console.log(`  aNestedObjKey:${aNestedObjKey}`)
-  console.log(`  aPropName:${aPropName}`)
-  console.log(`  aPropValue:${aPropValue}`)
-
   const params = {
     TableName: aTable,
     Key: aPrimKeyObj,
@@ -186,6 +206,8 @@ export async function tableUpdateAppendNestedObjectProperty(
   return new Promise((resolve, reject) => {
     _docClientAK.update(params, (err, data) => {
       if (err) {
+        debugLog('tableUpdateAppendNestedObjectProperty', params, err)
+
         reject(err)
       } else {
         resolve(data)

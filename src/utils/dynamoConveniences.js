@@ -76,13 +76,9 @@ export async function unauthenticatedUuidTablePut(anUnauthenticatedUuidRowObj) {
 }
 
 export async function unauthenticatedUuidTableAppendAppId(aUuid, anAppId) {
-
-  const primKeyObj = {}
-  primKeyObj[ process.env.REACT_APP_UNAUTH_UUID_TABLE_PK ] = aUuid
-
   return tableUpdateListAppend(
     process.env.REACT_APP_UNAUTH_UUID_TABLE,
-    primKeyObj,
+    { [ process.env.REACT_APP_UNAUTH_UUID_TABLE_PK ] : aUuid },
     'apps',
     anAppId
   )
@@ -91,12 +87,9 @@ export async function unauthenticatedUuidTableAppendAppId(aUuid, anAppId) {
 export async function walletToUuidMapTableAddCipherTextUuidForAppId(
   aWalletAddress, aCipherTextUuid, anAppId) {
 
-  const primKeyObj = {}
-  primKeyObj[ process.env.REACT_APP_UUID_TABLE_PK ] = aWalletAddress
-
   return tableUpdateAppendNestedObjectProperty(
     process.env.REACT_APP_UUID_TABLE,
-    primKeyObj,
+    { [ process.env.REACT_APP_UUID_TABLE_PK ] : aWalletAddress },
     'app_to_enc_uuid_map',
     anAppId,
     aCipherTextUuid
@@ -106,12 +99,9 @@ export async function walletToUuidMapTableAddCipherTextUuidForAppId(
 export async function walletAnalyticsDataTableAddWalletForAnalytics(
   aWalletAddress, anAppId) {
 
-  const primKeyObj = {}
-  primKeyObj[ process.env.REACT_APP_AD_TABLE_PK] = anAppId
-
   return tableUpdateAppendNestedObjectProperty(
     process.env.REACT_APP_AD_TABLE,
-    primKeyObj,
+    { [ process.env.REACT_APP_AD_TABLE_PK] : anAppId },
     'analytics',
     aWalletAddress,
     {}
