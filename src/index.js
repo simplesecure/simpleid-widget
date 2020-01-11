@@ -21,6 +21,7 @@ connection.promise.then(parent => {
   });
 
   parent.checkAction().then(async (action) => {
+    console.log(action);
     //First check if this is a sign out request
     if(action === 'sign-out') {
       await localStorage.clear();
@@ -33,21 +34,22 @@ connection.promise.then(parent => {
         parent.close();
         return;
       })
+    } else if(action === 'process-data') {
+      parent.dataToProcess().then(async (data) => {
+        console.log("DATA to Process: ")
+        console.log(data);
+        if(data) {
+          const dataToReturn = await handleData(data);
+          parent.returnProcessedData(dataToReturn);
+          //parent.close();
+        }
+      })
     } else  {
       //If not a sign out request, set the action appropriately
       setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
 
       parent.checkType().then((type) => {
         setGlobal({ type });
-      })
-
-      parent.dataToProcess().then((data) => {
-        console.log("DATA to Process: ")
-        console.log(data);
-        if(data) {
-          handleData(data)
-          parent.close();
-        }
       })
     }
   });
