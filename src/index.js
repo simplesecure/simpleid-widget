@@ -41,7 +41,7 @@ connection.promise.then(parent => {
         if(data) {
           const dataToReturn = await handleData(data);
           parent.returnProcessedData(dataToReturn);
-          //parent.close();
+          parent.close();
         }
       })
     } else  {
