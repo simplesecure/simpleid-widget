@@ -469,7 +469,7 @@ export class SidServices
         //TODO: Review this with AC
 
         // if (!this.appIsSimpleId) {
-          await this.walletAnalyticsDataTableAddWalletForAnalyics()
+          await this.walletAnalyticsDataTableAddWalletForAnalytics()
         // }
 
         //  5. Email / Save PDF secret
@@ -667,7 +667,7 @@ export class SidServices
     //       3. Use update to do the assignment (right now we're doing the
     //       horrible read--modify--clobber-write)
     //       4. Def check to make sure the same app id doesn't exist / collide
-    //       in the wallet analyics table
+    //       in the wallet analytics table
 
     const appId = uuidv4()
 
@@ -685,7 +685,7 @@ export class SidServices
     // 2. Update the Wallet Analytics Data table
     //
     try {
-      const walletAnalyicsRowObj = {
+      const walletAnalyticsRowObj = {
         app_id: appId,
         org_id: anOrgId,
         public_key: 'TODO: generate a key pair for the org and propagate that to here',
@@ -694,12 +694,12 @@ export class SidServices
       // TODO: remove example data below
       for (let i = 0; i <= 4; i++) {
         const walletAddr = SidServices._getRandomString(32)
-        walletAnalyicsRowObj.analytics[walletAddr] = {
+        walletAnalyticsRowObj.analytics[walletAddr] = {
           event: 'sign-up',
           utc: Date.now()
         }
       }
-      await this.walletAnalyicsDataTablePut(walletAnalyicsRowObj)
+      await this.walletAnalyticsDataTablePut(walletAnalyticsRowObj)
     } catch (error) {
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
@@ -764,9 +764,9 @@ export class SidServices
     // 2. Update the Wallet Analytics Data table:
     //
     // TODO:
-    console.log('before walletAnalyticsDataTableAddWalletForAnalyics')
-    await this.walletAnalyticsDataTableAddWalletForAnalyics()
-    console.log('after walletAnalyticsDataTableAddWalletForAnalyics')
+    console.log('before walletAnalyticsDataTableAddWalletForAnalytics')
+    await this.walletAnalyticsDataTableAddWalletForAnalytics()
+    console.log('after walletAnalyticsDataTableAddWalletForAnalytics')
 
     // 3. Update the Wallet to UUID Map table:
     //
@@ -830,7 +830,7 @@ export class SidServices
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
      //
-     await this.walletAnalyticsDataTableAddWalletForAnalyics()
+     await this.walletAnalyticsDataTableAddWalletForAnalytics()
 
      // 3. Create an entry for them in the Wallet to UUID Map
      //
@@ -1218,7 +1218,7 @@ export class SidServices
     })
   }
 
-  walletAnalyicsDataTableGet = async (anAppId) => {
+  walletAnalyticsDataTableGet = async (anAppId) => {
     return this.tableGet(
       process.env.REACT_APP_AD_TABLE,
       process.env.REACT_APP_AD_TABLE_PK,
@@ -1226,7 +1226,7 @@ export class SidServices
     )
   }
 
-  walletAnalyicsDataTablePut = async (anWalletAnalyticsRowObj) => {
+  walletAnalyticsDataTablePut = async (anWalletAnalyticsRowObj) => {
     return this.tablePut(
       process.env.REACT_APP_AD_TABLE,
       anWalletAnalyticsRowObj
@@ -1461,7 +1461,7 @@ export class SidServices
     )
   }
 
-  walletAnalyticsDataTableAddWalletForAnalyics = async (
+  walletAnalyticsDataTableAddWalletForAnalytics = async (
     aWalletAddress=this.persist.address, anAppId=this.appId) => {
 
     const primKeyObj = {}
