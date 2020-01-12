@@ -53,7 +53,7 @@ const KEY_FARM_IDS = [
 /*******************************************************************************
  * Test Switches - Remove / Disable in Production
  ******************************************************************************/
-const TEST_SIGN_USER_UP_TO_NEW_APP = false
+const TEST_SIGN_USER_UP_TO_NEW_APP = true
 
 
 // TODO: move this to dynamo / lambda system in milestone 2 (the max keys value so it's dynamic)
