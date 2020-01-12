@@ -140,7 +140,7 @@ export async function handlePassword(e, actionType) {
 }
 
 export async function approveSignIn() {
-  const { nonSignInEvent } = getGlobal();
+  const { nonSignInEvent, hostedApp } = getGlobal();
   console.log(nonSignInEvent);
   if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     // WARNING:
@@ -156,14 +156,18 @@ export async function approveSignIn() {
     let walletAddr = "";
     let wallet = {};
     let sid = {};
+    let revealMnemonic = undefined;
     try {
-      authenticatedUser = await getSidSvcs().answerCustomChallenge(token, nonSignInEvent)
+      const thisUserSignUp = await getSidSvcs().answerCustomChallenge(token, nonSignInEvent)
+      const { signUpMnemonicReveal, authenticated } = thisUserSignUp;
+      authenticatedUser = authenticated;
+      revealMnemonic = signUpMnemonicReveal;
       const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
       walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : ""
       const sidSvcWallet = getSidSvcs().getWallet()
       wallet = sidSvcWallet ? sidSvcWallet : {}
       sid = getSidSvcs().getSID();
-
+      setGlobal({ walletAddr, sid });
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
@@ -175,26 +179,32 @@ export async function approveSignIn() {
     console.log("NON SIGN IN EVENT: ", nonSignInEvent);
     //TODO: @AC needs to review because this might be a place where we are revealing too much to the parent
     if (authenticatedUser && !nonSignInEvent) {
-      const connection = connectToParent({
-        // Methods child is exposing to parent
-        methods: {
-          //
-        }
-      });
-
-      connection.promise.then(parent => {
-        const userData = {
-          email: "", //TODO: remove this
-          wallet: {
-            ethAddr: walletAddr
-          }, 
-          orgId: sid ? sid : null
-        }
-
-        parent.storeWallet(JSON.stringify(userData)).then((res) => {
-          closeWidget(true);
-        })
-      });
+      if(hostedApp === true) {
+        setGlobal({ showWallet: true, loading: false });
+      } else if(revealMnemonic === true) {
+        setGlobal({ signUpMnemonicReveal: true, loading: false, showWallet: true });
+      } else if(!revealMnemonic) {
+        const connection = connectToParent({
+          // Methods child is exposing to parent
+          methods: {
+            //
+          }
+        });
+  
+        connection.promise.then(parent => {
+          const userData = {
+            email: "", //TODO: remove this
+            wallet: {
+              ethAddr: walletAddr
+            }, 
+            orgId: sid ? sid : null
+          }
+  
+          parent.storeWallet(JSON.stringify(userData)).then((res) => {
+            closeWidget(true);
+          })
+        });
+      }
     } else if(nonSignInEvent) {
       //This is where we should return the keychain for transaction handling and messaging signing events
       return wallet;
@@ -225,6 +235,30 @@ export async function approveSignIn() {
       });
     });
   }
+}
+
+export async function finishSignUp() {
+  const { walletAddr, sid } = getGlobal();
+  const connection = connectToParent({
+    // Methods child is exposing to parent
+    methods: {
+      //
+    }
+  });
+
+  connection.promise.then(parent => {
+    const userData = {
+      email: "", //TODO: remove this
+      wallet: {
+        ethAddr: walletAddr ? walletAddr : "ERROR WITH WALLET"
+      }, 
+      orgId: sid ? sid : null
+    }
+
+    parent.storeWallet(JSON.stringify(userData)).then((res) => {
+      closeWidget(true);
+    })
+  });
 }
 
 export async function generateKeychain() {

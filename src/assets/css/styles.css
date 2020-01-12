@@ -54,3 +54,35 @@
 .error-message {
   margin-top: 15px;
 }
+
+.small-text {
+  font-size: 10px;
+}
+
+.a-el-fix {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #2568EF;
+}
+
+.mnemonic-div {
+  margin-top: 50px;
+  text-align: center;
+}
+
+.header-sign-out {
+  position: absolute;
+  left: 10px;
+  top: 15px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px!important;
+}
+
+@media print{
+  .no-print {
+    display: none;
+  }
+}
+

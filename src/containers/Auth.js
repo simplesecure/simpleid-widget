@@ -25,7 +25,6 @@ export default class Auth extends React.Component {
   // Renderers
   //////////////////////////////////////////////////////////////////////////////
   renderSignInApproval = () => {
-    console.log("THIS AINT RIGHT");
     return (
       <div>
         <h5>Enter the code you received via email to continue</h5>
@@ -88,6 +87,7 @@ export default class Auth extends React.Component {
 
   // Maps to unknown actions (i.e. default), which includes 'sign-in'
   renderEnterEmail = (theConfig) => {
+    console.log("should not be rendering")
     return (
       <div>
         <h5>{theConfig.appName} is protecting you with <mark>SimpleID</mark></h5>
@@ -111,9 +111,30 @@ export default class Auth extends React.Component {
           <Form.Group controlId="formBasicEmail">
             <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />
           </Form.Group>
-          {/*<Form.Text className="text-muted bottom-10">
+          <Form.Text className="text-muted bottom-10">
             A one-time code will be emailed to you.
-          </Form.Text>*/}
+          </Form.Text>
+          <Button variant="primary" type="submit">
+            Continue
+          </Button>
+        </Form>
+      </div>
+    )
+  }
+
+  renderEnterEmailHosted = (theConfig) => {
+    console.log("rendering")
+    return (
+      <div>
+        <h5>Sign Into Your SimpleID Wallet</h5>
+        <p>All you need is an email.</p>
+        <Form onSubmit={signIn}>
+          <Form.Group controlId="formBasicEmail">
+            <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />
+          </Form.Group>
+          <Form.Text className="text-muted bottom-10">
+            A one-time code will be emailed to you.
+          </Form.Text>
           <Button variant="primary" type="submit">
             Continue
           </Button>
@@ -124,6 +145,7 @@ export default class Auth extends React.Component {
 
   render = () => {
     const { config, action } = this.global;
+    console.log(action);
 
     let containerElements = undefined
     switch (action) {
@@ -139,8 +161,11 @@ export default class Auth extends React.Component {
       case 'enter-password':
         containerElements = this.renderEnterPassword()
         break
+      case 'sign-in-hosted':
+        containerElements = this.renderEnterEmailHosted()
+        break;
       default:  // includes 'sign-in' and anything else...
-        containerElements = this.renderEnterEmail(config)
+        containerElements = this.renderEnterEmailHosted(config)
     }
 
     return (

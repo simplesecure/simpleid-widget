@@ -148,3 +148,8 @@ export async function fetchTotalTransactions(users) {
   }
   return txCount;
 }
+
+export async function walletPDF() {
+  document.title = "SimpleID Wallet";
+  window.print();
+}

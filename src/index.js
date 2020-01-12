@@ -21,7 +21,7 @@ connection.promise.then(parent => {
   });
 
   parent.checkAction().then(async (action) => {
-    console.log(action);
+    console.log("ACTION: ", action);
     //First check if this is a sign out request
     if(action === 'sign-out') {
       await localStorage.clear();
@@ -44,6 +44,17 @@ connection.promise.then(parent => {
           parent.close();
         }
       })
+    } else if(action === 'hosted-app') {
+      //Need to check if the user is already logged into the iframe
+      const wallet = getSidSvcs().getWalletAddress();
+      console.log("WALLET: ", wallet);
+      if(wallet) {
+        //Show a blance screen with other functionality
+        setGlobal({ showWallet: true });
+      } else {
+        setGlobal({ action: "sign-in-hosted" });
+      }
+      setGlobal({ hostedApp: true, action, auth: action === "transaction" || action === "message" || wallet ? false : true });
     } else  {
       //If not a sign out request, set the action appropriately
       setGlobal({ action, auth: action === "transaction" || action === "message" ? false : true });
@@ -53,7 +64,7 @@ connection.promise.then(parent => {
       })
     }
   });
-})
+});
 
 // Global for interfacing to SID Services
 // TODO: clean up
@@ -95,7 +106,13 @@ setGlobal({
   error: "",
   subaction: "",
   type: "",
-  nonSignInEvent: false
+  nonSignInEvent: false, 
+  hostedApp: false, 
+  showWallet: false, 
+  network: 'mainnet', 
+  signUpMnemonicReveal: false, 
+  walletAddr: "", 
+  sid: {}
 })
 
 ReactDOM.render(<App />, document.getElementById('root'));

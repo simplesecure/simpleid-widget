@@ -8,6 +8,7 @@ import './assets/css/styles.css';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Auth from './containers/Auth';
+import Wallet from './components/Wallet';
 import Approve from './containers/Approve';
 import Modal from 'react-bootstrap/Modal';
 
@@ -35,8 +36,9 @@ export default class App extends React.Component {
   }
 
   render() {
-    const { auth } = this.global;
-    const bodyElement = auth ? ( <Auth /> ) : ( <Approve /> )
+    const { auth, showWallet } = this.global;
+    console.log("SHOW WALLET: ", showWallet);
+    const bodyElement = auth && showWallet === false ? ( <Auth /> ) : showWallet ? (<Wallet />) : ( <Approve /> )
 
     return (
       <Modal show={true}>
