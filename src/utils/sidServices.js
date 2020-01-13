@@ -771,13 +771,23 @@ export class SidServices
 
     // 1. Update the Organization Data table:
     //
+    let orgData = undefined
     try {
       // TODO: See TODO.3 above!
-      const data = await organizationDataTableGet(anOrgId)
-      data.Item.apps[appId] = anAppName
-      await organizationDataTablePut(data.Item)
+      orgData = await organizationDataTableGet(anOrgId)
+      orgData.Item.apps[appId] = anAppName
+      await organizationDataTablePut(orgData.Item)
     } catch (error) {
       throw new Error(`ERROR: Failed to update apps in Organization Data table.\n${error}`)
+    }
+
+    // 1.5 Get the public key
+    //
+    let publicKey = undefined
+    try {
+      publicKey = orgData.Item.cryptography.pub_key
+    } catch (suppressedError) {
+      console.log(`WARN: Failed to fetch public key from Org Data.\n${suppressedError}`)
     }
 
     // 2. Update the Wallet Analytics Data table
@@ -786,16 +796,8 @@ export class SidServices
       const walletAnalyticsRowObj = {
         app_id: appId,
         org_id: anOrgId,
-        public_key: 'TODO: generate a key pair for the org and propagate that to here',
+        public_key: publicKey,
         analytics: {}
-      }
-      // TODO: remove example data below
-      for (let i = 0; i <= 4; i++) {
-        const walletAddr = SidServices._getRandomString(32)
-        walletAnalyticsRowObj.analytics[walletAddr] = {
-          event: 'sign-up',
-          utc: Date.now()
-        }
       }
       await walletAnalyticsDataTablePut(walletAnalyticsRowObj)
     } catch (error) {
