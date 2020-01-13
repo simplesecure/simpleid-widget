@@ -154,8 +154,6 @@ export class SidServices
       address: undefined,
       secretCipherText1: undefined,
       secretCipherText2: undefined,
-      ecPubKey: undefined,
-      ecPrivKeyCipherText: undefined
     }
 
     console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
@@ -202,9 +200,9 @@ export class SidServices
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       // TODO: -should these be Buffer.from()?
       const secretPlainText1 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
       const secretPlainText2 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
 
       // 3. Merge the secrets to recover the keychain
       const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
@@ -411,9 +409,9 @@ export class SidServices
         //  3. Encrypt & store private / secret user data
         //
         this.persist.secretCipherText1 =
-          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId1, shares[0])
+          await this.encryptWithKmsUsingIdpCredentials(this.keyId1, shares[0])
         this.persist.secretCipherText2 =
-          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId2, shares[1])
+          await this.encryptWithKmsUsingIdpCredentials(this.keyId2, shares[1])
 
         //  4. a)  Create and store entry in Organization Data (simple_id_org_data_v001)
         //         the this.appIsSimpleId
@@ -439,25 +437,7 @@ export class SidServices
         //       2. Should we check for a uuid collision? (unlikely, but huge
         //          security fail if happens)
         //
-        let sidObj = {}
-        if (this.appIsSimpleId) {
-          this.neverPersist.priKey = eccrypto.generatePrivate()
-          const pubKey = eccrypto.getPublic(this.neverPersist.priKey)
-          this.persist.ecPrivKeyCipherText =
-            await this.encryptKeyAssignmentWithIdpCredentials(
-              this.keyId1, Buffer.from(this.neverPersist.priKey))
-
-          const orgId = await this.createOrganizationId(
-            this.userUuid, pubKey, this.neverPersist.priKey)
-
-          sidObj = {
-            org_id: orgId,
-            pubKey: pubKey,
-            priKeyCipherText: this.persist.ecPrivKeyCipherText,
-          }
-          this.persist['sid'] = sidObj
-        }
-
+        const sidObj = await this.createSidObject()
 
         //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
         //
@@ -509,7 +489,7 @@ export class SidServices
         //  5. Email / Save PDF secret
         // TODO: Justin solution to share w/ user
         signUpMnemonicReveal = true;
-        
+
         console.log('DBG: DELETE this comment after debugging / system ready')
         console.log('*******************************************************')
         console.log('Eth Wallet:')
@@ -525,6 +505,11 @@ export class SidServices
     } else if (authenticated) {
       // Phase 2 of signIn flow:
       //////////////////////////
+      // 0. Update the key IDs from the token in case we need to encrypt
+      //    a public key
+      const keyAssignments = await this.getKeyAssignmentFromTokenAttr()
+      this.keyId1 = keyAssignments['kfa1']
+      this.keyId2 = keyAssignments['kfa2']
 
       // 1. Fetch the encrypted secrets from Dynamo
       //
@@ -537,9 +522,9 @@ export class SidServices
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       //
       const secretPlainText1 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
       const secretPlainText2 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
 
       // 3. Merge the secrets to recover the keychain
       //
@@ -553,47 +538,39 @@ export class SidServices
 
       this.userUuid = userData.uuid
 
-      let userDataDbNeedsUpdate = false
-      // 4.1 Here Justin appears to be checking if a user has sid data and
-      //     adds that to the perstence model, otherwise he check if the app is
-      //     simpleID and creates and stores it in the User Data DB.
-      if(userData && userData.sid && userData.sid.org_id) {
-        this.persist.sid = userData && userData.sid ? userData.sid : undefined;
-      } else {
-        //If this is coming from the SimpleID app, need to make sure a user that may have existed before
-        //can still create an org
-        if (this.appIsSimpleId) {
-          let orgId = (this.appIsSimpleId) ?
-            await this.createOrganizationId(this.userUuid) : undefined
-          this.persist['sid'] = {};
-          this.persist.sid['org_id'] = orgId;
-          userData['sid'] = {};
-          userData.sid['org_id'] = orgId;
-          userDataDbNeedsUpdate = true
-        } else {
-          this.persist['sid'] = userData.sid;
-        }
-      }
-
       // 5. If the user has never signed into this App before, we need to update
       //    the appropriate tables with the user's data unless this is happening on the hosted-wallet side of things:
       //
-      /* REMOVE Test code when working ****************************************/
       if(hostedApp !== true) {
+
+        /* REMOVE Test code when working ****************************************/
         const oldAppId = this.appId
         if (TEST_SIGN_USER_UP_TO_NEW_APP) {
           this.appId = `new-app-id-random-authd-${Date.now()}`
         }
         // See also: BEGIN REMOVE ~10 lines down
         /* END REMOVE ***********************************************************/
+
+        let userDataDbNeedsUpdate = false
         if (!userData.apps.hasOwnProperty(this.appId)) {
           console.log('First time logging into this app, updating associate DBs')
           userData.apps[this.appId] = {}
           userDataDbNeedsUpdate = true
 
+          if (this.appIsSimpleId) {
+            const sidObj = await this.createSidObject()
+            userData.sid = sidObj
+
+            this.persist['sid'] = sidObj
+            userDataDbNeedsUpdate = true
+          } else {
+            this.persist.sid = userData && userData.sid ? userData.sid : undefined;
+          }
+
           const authenticatedUser = true
           await this.signUserUpToNewApp(authenticatedUser)
         }
+
         // BEGIN REMOVE
         // restore appId
         this.appId = oldAppId
@@ -644,6 +621,35 @@ export class SidServices
     }
   }
 
+  getUserDetails = async () => {
+    try {
+      if (!this.cognitoUser) {
+        this.cognitoUser = await Auth.currentAuthenticatedUser()
+      }
+      return await Auth.userAttributes(this.cognitoUser)
+    } catch (suppressedError) {
+      console.log(`WARN: Unable to get user details from token.\n${suppressedError}`)
+    }
+    return undefined
+  }
+
+  getKeyAssignmentFromTokenAttr = async () => {
+    console.log('getKeyAssignmentFromTokenAttr:')
+    console.log('- - - - - - - - - - - - - - - - ')
+    const userAttributes = await this.getUserDetails()
+    const keyAssignments = {}
+    for (const userAttribute of userAttributes) {
+      if (userAttribute.getName() === 'custom:kfa1') {
+        console.log(`returning kfa1: ${userAttribute.getValue()}`)
+        keyAssignments['kfa1'] = userAttribute.getValue()
+      } else if (userAttribute.getName() === 'custom:kfa2') {
+        console.log(`returning kfa2: ${userAttribute.getValue()}`)
+        keyAssignments['kfa2'] = userAttribute.getValue()
+      }
+    }
+    return keyAssignments
+  }
+
 
 
 /******************************************************************************
@@ -677,23 +683,18 @@ export class SidServices
     const orgPubKey = eccrypto.getPublic(orgPriKey)
     let priKeyCipherText = undefined
     try {
-      const priKeys = [ orgPriKey ]
-      priKeyCipherText =
-        await eccrypto.encrypt(
-          aUserPubKey, Buffer.from(JSON.stringify(priKeys)))
-
+      priKeyCipherText = await eccrypto.encrypt(aUserPubKey, orgPriKey)
     } catch (error) {
       throw new Error(`ERROR: Creating organization id. Failed to create private key cipher text.\n${error}`)
     }
 
     if (TEST_ASYMMETRIC_DECRYPT) {
       try {
-        const recoveredPriKeysBuf =
-          await eccrypto.decrypt(
-            aUserPriKey, priKeyCipherText)
-        const recoveredPriKeys = JSON.parse(recoveredPriKeysBuf.toString())
-        if (recoveredPriKeys[0] !== orgPriKey) {
-          throw new Error(`Recovered private key does not match private key:\nrecovered:${recoveredPriKeys[0]}\noriginal:${orgPriKey}\n`);
+        const recoveredPriKey =
+          await eccrypto.decrypt(aUserPriKey, priKeyCipherText)
+
+        if (recoveredPriKey.toString('hex') !== orgPriKey.toString('hex')) {
+          throw new Error(`Recovered private key does not match private key:\nrecovered:${recoveredPriKey[0].toString('hex')}\noriginal:${orgPriKey.toString('hex')}\n`);
         }
       } catch (error) {
         throw new Error(`ERROR: testing asymmetric decryption.\n${error}`)
@@ -723,6 +724,30 @@ export class SidServices
     }
 
     return orgId
+  }
+
+  createSidObject = async() => {
+    if (!this.appIsSimpleId) {
+      return {}
+    }
+
+    const priKey = eccrypto.generatePrivate()
+    const pubKey = eccrypto.getPublic(priKey)
+    const priKeyCipherText =
+      await this.encryptWithKmsUsingIdpCredentials(this.keyId1, priKey)
+
+    const orgId = await this.createOrganizationId(this.userUuid, pubKey, priKey)
+
+    let sidObj = {
+      org_id: orgId,
+      pub_key: pubKey,
+      pri_key_cipher_text: priKeyCipherText,
+    }
+
+    this.persist['sid'] = sidObj
+    this.neverPersist.priKey = priKey
+
+    return sidObj
   }
 
   /**
@@ -821,7 +846,7 @@ export class SidServices
     console.log(`  this.userUuid: ${this.userUuid}`)
     console.log(`  address: ${this.persist.address}`)
     //We should only be doing this if the request is coming from a regular app.
-    //If the request is coming from wallet.simpleid.xyz, the experience needs to be 
+    //If the request is coming from wallet.simpleid.xyz, the experience needs to be
     //different.
     if(hostedApp !== true) {
     if (isAuthenticatedUser) {
@@ -841,12 +866,16 @@ export class SidServices
     // 2. Update the Wallet Analytics Data table:
     //
     // TODO:
-    await walletAnalyticsDataTableAddWalletForAnalytics()
+    console.log(`DBG: signUserUpToNewApp calling walletAnalyticsDataTableAddWalletForAnalytics`)
+    await walletAnalyticsDataTableAddWalletForAnalytics(
+      this.persist.address, this.appId)
     // 3. Update the Wallet to UUID Map table:
     //
     // TODO: need to encrypt the uuid with the app devs PK
     //
     const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
+    console.log(`DBG: signUserUpToNewApp calling walletToUuidMapTableAddCipherTextUuidForAppId`)
+    console.log(`     (${this.persist.address}, ${plainTextUuid}, ${this.appId})`)
     await walletToUuidMapTableAddCipherTextUuidForAppId(
       this.persist.address, plainTextUuid, this.appId)
     }
@@ -905,7 +934,8 @@ export class SidServices
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
      //
-     await walletAnalyticsDataTableAddWalletForAnalytics()
+     await walletAnalyticsDataTableAddWalletForAnalytics(
+       this.persist.address, this.appId)
 
      // 3. Create an entry for them in the Wallet to UUID Map
      //
@@ -1039,7 +1069,7 @@ export class SidServices
  *                                                                            *
  ******************************************************************************/
 
-  encryptKeyAssignmentWithIdpCredentials = async (keyId, plainText) => {
+  encryptWithKmsUsingIdpCredentials = async (keyId, plainText) => {
     await this.requestIdpCredentials()
 
     // Now that the AWS creds are configured with the cognito login above, we
@@ -1072,8 +1102,8 @@ export class SidServices
   }
 
 
-  decryptKeyAssignmentWithIdpCredentials = async (cipherText) => {
-    console.log('decryptKeyAssignmentWithIdpCredentials')
+  decryptWithKmsUsingIdpCredentials = async (cipherText) => {
+    console.log('decryptWithKmsUsingIdpCredentials')
     console.log('-------------------------------------------------------------')
 
     await this.requestIdpCredentials()
