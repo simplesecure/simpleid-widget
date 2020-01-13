@@ -12,10 +12,10 @@ import { walletAnalyticsDataTablePut,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
 
+
+
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
-
-const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 
 // v4 = random. Might consider using v5 (namespace, in conjunction w/ app id)
 // see: https://github.com/kelektiv/node-uuid
@@ -24,6 +24,12 @@ const uuidv4 = require('uuid/v4')
 const SSS = require('shamirs-secret-sharing')
 const Buffer = require('buffer/').Buffer  // note: the trailing slash is important!
                                           // (See: https://github.com/feross/buffer)
+
+const eccrypto = require('eccrypto')
+
+
+
+const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 
 // TODO: clean up for security best practices
 //       currently pulled from .env
@@ -49,6 +55,11 @@ const KEY_FARM_IDS = [
   '2fe4d745-6685-4581-93ca-6fd7aff92426',   // Key 1
   'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
 ]
+
+/*******************************************************************************
+ * Configuration Switches
+ ******************************************************************************/
+const TEST_ASYMMETRIC_DECRYPT = true
 
 /*******************************************************************************
  * Test Switches - Remove / Disable in Production
@@ -141,7 +152,9 @@ export class SidServices
       email: undefined,
       address: undefined,
       secretCipherText1: undefined,
-      secretCipherText2: undefined
+      secretCipherText2: undefined,
+      ecPubKey: undefined,
+      ecPrivKeyCipherText: undefined
     }
 
     console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
@@ -163,6 +176,7 @@ export class SidServices
 
     this.neverPersist = {
       wallet: undefined,
+      priKey: undefined
     }
   }
 
@@ -394,22 +408,6 @@ export class SidServices
         //  4. a)  Create and store entry in Organization Data (simple_id_org_data_v001)
         //         the this.appIsSimpleId
         //
-        let orgId = (this.appIsSimpleId) ?
-          await this.createOrganizationId(this.userUuid) : undefined
-
-        //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
-        //
-        const userDataRow = {
-          // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
-          uuid: this.userUuid,
-          email: this.persist.email,
-          secretCipherText1: this.persist.secretCipherText1,
-          secretCipherText2: this.persist.secretCipherText2,
-          apps: {},
-          sid: {},
-          address: this.persist.address,
-        }
-        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
         //
         // Special case. User is signing into Simple ID analytics and needs to be
         // part of an organization (org_id) etc. Two scenarios (only #1 is
@@ -431,11 +429,40 @@ export class SidServices
         //       2. Should we check for a uuid collision? (unlikely, but huge
         //          security fail if happens)
         //
+        let sidObj = {}
         if (this.appIsSimpleId) {
-          userDataRow.sid['org_id'] = orgId
-          this.persist['sid'] = {};
-          this.persist.sid['org_id'] = orgId;
+          this.neverPersist.priKey = eccrypto.generatePrivate()
+          const pubKey = eccrypto.getPublic(this.neverPersist.priKey)
+          this.persist.ecPrivKeyCipherText =
+            await this.encryptKeyAssignmentWithIdpCredentials(
+              this.keyId1, Buffer.from(this.neverPersist.priKey))
+
+          const orgId = await this.createOrganizationId(
+            this.userUuid, pubKey, this.neverPersist.priKey)
+
+          sidObj = {
+            org_id: orgId,
+            pubKey: pubKey,
+            priKeyCipherText: this.persist.ecPrivKeyCipherText,
+          }
+          this.persist['sid'] = sidObj
         }
+
+
+        //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
+        //
+        const userDataRow = {
+          // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
+          uuid: this.userUuid,
+          email: this.persist.email,
+          secretCipherText1: this.persist.secretCipherText1,
+          secretCipherText2: this.persist.secretCipherText2,
+          apps: {},
+          sid: sidObj,
+          address: this.persist.address,
+        }
+        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
+
         // Write this to the user data table:
         await this.tablePutWithIdpCredentials( userDataRow )
 
@@ -448,20 +475,17 @@ export class SidServices
         //       the plain text uuid.
 
         //TODO: Review this with AC
-
-        // if (!this.appIsSimpleId) {
-          const plainTextUuid = this.userUuid
-          const walletUuidMapRow = {
-            wallet_address: this.persist.address,
-            app_to_enc_uuid_map: {}
-          }
-          walletUuidMapRow.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
-          //
-          // TODO: Make this use Cognito to get write permission to the DB (for the
-          //       time being we're using an AWS_SECRET):
-          // TODO: Make this update / append when needed too (here it's new data so it's okay)
-          await walletToUuidMapTablePut(walletUuidMapRow)
-        // }
+        const plainTextUuid = this.userUuid
+        const walletUuidMapRow = {
+          wallet_address: this.persist.address,
+          app_to_enc_uuid_map: {}
+        }
+        walletUuidMapRow.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
+        //
+        // TODO: Make this use Cognito to get write permission to the DB (for the
+        //       time being we're using an AWS_SECRET):
+        // TODO: Make this update / append when needed too (here it's new data so it's okay)
+        await walletToUuidMapTablePut(walletUuidMapRow)
 
         //  4. d)  Create and store Wallet Analytics Data
         //         (simple_id_cust_analytics_data_v001)
@@ -522,7 +546,7 @@ export class SidServices
       //     adds that to the perstence model, otherwise he check if the app is
       //     simpleID and creates and stores it in the User Data DB.
       if(userData && userData.sid && userData.sid.org_id) {
-        this.persist.sid = userData && userData.sid ? userData.sid : null;
+        this.persist.sid = userData && userData.sid ? userData.sid : undefined;
       } else {
         //If this is coming from the SimpleID app, need to make sure a user that may have existed before
         //can still create an org
@@ -617,10 +641,11 @@ export class SidServices
    * createOrganizationId
    *
    * Notes:  This method generates an organization id and then populates the
-   *         Organization Data Table and User Data Tables with the
-   *         newly created organization id.
+   *         Organization Data Table with the newly created organization id.
+   *
+   *         @return orgId, the newly created organization id
    */
-  createOrganizationId = async(aUserUuid) => {
+  createOrganizationId = async(aUserUuid, aUserPubKey, aUserPriKey) => {
     const orgId = uuidv4()
 
     let sub = undefined
@@ -633,8 +658,41 @@ export class SidServices
       throw Error('ERROR: Failed to get id from Identity Pool.')
     }
 
+    const orgPriKey = eccrypto.generatePrivate()
+    const orgPubKey = eccrypto.getPublic(orgPriKey)
+    let priKeyCipherText = undefined
+    try {
+      const priKeys = [ orgPriKey ]
+      priKeyCipherText =
+        await eccrypto.encrypt(
+          aUserPubKey, Buffer.from(JSON.stringify(priKeys)))
+
+    } catch (error) {
+      throw new Error(`ERROR: Creating organization id. Failed to create private key cipher text.\n${error}`)
+    }
+
+    if (TEST_ASYMMETRIC_DECRYPT) {
+      try {
+        const recoveredPriKeysBuf =
+          await eccrypto.decrypt(
+            aUserPriKey, priKeyCipherText)
+        const recoveredPriKeys = JSON.parse(recoveredPriKeysBuf.toString())
+        if (recoveredPriKeys[0] !== orgPriKey) {
+          throw new Error(`Recovered private key does not match private key:\nrecovered:${recoveredPriKeys[0]}\noriginal:${orgPriKey}\n`);
+        }
+      } catch (error) {
+        throw new Error(`ERROR: testing asymmetric decryption.\n${error}`)
+      }
+    }
+
     const organizationDataRowObj = {
       org_id: orgId,
+      cryptography: {
+        pub_key: orgPubKey,
+        pri_key_ciphertexts: {
+          [aUserUuid] : priKeyCipherText,
+        }
+      },
       owner: {
         sub: sub,
         uuid: aUserUuid,
