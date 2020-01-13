@@ -49,6 +49,9 @@ export async function handleData(dataToProcess) {
   } else if(type === 'email messaging') {
     //Here we will do something similar to segment data except we will send the appropriate message
     //Data should include the email template to use
+  } else if(type === 'ping') {
+    console.log("let's ping this bad boy")
+    console.log(data);
   }
   closeWidget();
 }

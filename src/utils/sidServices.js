@@ -128,7 +128,7 @@ export class SidServices
   constructor(anAppId) {
     this.cognitoUser = undefined
     this.signUpUserOnConfirm = false
-
+    this.hostedApp = getGlobal().hostedApp
     this.keyId1 = undefined
     this.keyId2 = undefined
 
@@ -313,7 +313,7 @@ export class SidServices
    *             - block specific calling appId?
    */
   signOut = async () => {
-    const { hostedApp } = getGlobal()
+    const hostedApp = this.hostedApp
     //For now, if the user is on the hosted wallet page and not in a third parth app
     //We'll clear localStorage and refresh
     if(hostedApp) {
@@ -363,7 +363,7 @@ export class SidServices
    */
   answerCustomChallenge = async (anAnswer) => {
     let signUpMnemonicReveal;
-    const { hostedApp } = getGlobal();
+    const hostedApp = this.hostedApp
     try {
       this.cognitoUser =
         await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
@@ -483,7 +483,10 @@ export class SidServices
           this.persist.address, this.appId)
 
         //  5. Email / Save PDF secret
-        // TODO: Justin solution to share w/ user
+        //   Setting this as true so we can return it to the approveSignIn function from postMessage.js
+        //   If we don't do this, we'll have to set state in the sidServices file, which I don't think
+        //   we want to do. 
+        //   see line 609 for how this will be returned
         signUpMnemonicReveal = true;
         
         console.log('DBG: DELETE this comment after debugging / system ready')
@@ -600,6 +603,9 @@ export class SidServices
         console.log('ERROR persisting SID services data to local store.')
       }
     }
+
+    // moving the authenticated = true into an object so that we include signUpMnemonicReveal
+    // this needs to be sent so that in postMessage.js we know if we need to update state accordingly
     const results = { authenticated, signUpMnemonicReveal }
     return results;
   }
@@ -755,7 +761,7 @@ export class SidServices
    *         catch statements on individual promises.
    */
   signUserUpToNewApp = async(isAuthenticatedUser) => {
-    const { hostedApp } = getGlobal()
+    const hostedApp = this.hostedApp
     console.log(`DBG: signUserUpToNewApp`)
     console.log('-------------------------------------------------------------')
     console.log(`  isAuthenticatedUser: ${isAuthenticatedUser}`)
