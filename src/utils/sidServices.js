@@ -13,10 +13,10 @@ import { walletAnalyticsDataTablePut,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
 
+
+
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
-
-const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 
 // v4 = random. Might consider using v5 (namespace, in conjunction w/ app id)
 // see: https://github.com/kelektiv/node-uuid
@@ -25,6 +25,12 @@ const uuidv4 = require('uuid/v4')
 const SSS = require('shamirs-secret-sharing')
 const Buffer = require('buffer/').Buffer  // note: the trailing slash is important!
                                           // (See: https://github.com/feross/buffer)
+
+const eccrypto = require('eccrypto')
+
+
+
+const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 
 // TODO: clean up for security best practices
 //       currently pulled from .env
@@ -50,6 +56,11 @@ const KEY_FARM_IDS = [
   '2fe4d745-6685-4581-93ca-6fd7aff92426',   // Key 1
   'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
 ]
+
+/*******************************************************************************
+ * Configuration Switches
+ ******************************************************************************/
+const TEST_ASYMMETRIC_DECRYPT = true
 
 /*******************************************************************************
  * Test Switches - Remove / Disable in Production
@@ -142,7 +153,7 @@ export class SidServices
       email: undefined,
       address: undefined,
       secretCipherText1: undefined,
-      secretCipherText2: undefined
+      secretCipherText2: undefined,
     }
 
     console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
@@ -164,6 +175,7 @@ export class SidServices
 
     this.neverPersist = {
       wallet: undefined,
+      priKey: undefined
     }
   }
 
@@ -188,9 +200,9 @@ export class SidServices
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       // TODO: -should these be Buffer.from()?
       const secretPlainText1 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
       const secretPlainText2 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
 
       // 3. Merge the secrets to recover the keychain
       const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
@@ -397,29 +409,13 @@ export class SidServices
         //  3. Encrypt & store private / secret user data
         //
         this.persist.secretCipherText1 =
-          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId1, shares[0])
+          await this.encryptWithKmsUsingIdpCredentials(this.keyId1, shares[0])
         this.persist.secretCipherText2 =
-          await this.encryptKeyAssignmentWithIdpCredentials(this.keyId2, shares[1])
+          await this.encryptWithKmsUsingIdpCredentials(this.keyId2, shares[1])
 
         //  4. a)  Create and store entry in Organization Data (simple_id_org_data_v001)
         //         the this.appIsSimpleId
         //
-        let orgId = (this.appIsSimpleId) ?
-          await this.createOrganizationId(this.userUuid) : undefined
-
-        //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
-        //
-        const userDataRow = {
-          // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
-          uuid: this.userUuid,
-          email: this.persist.email,
-          secretCipherText1: this.persist.secretCipherText1,
-          secretCipherText2: this.persist.secretCipherText2,
-          apps: {},
-          sid: {},
-          address: this.persist.address,
-        }
-        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
         //
         // Special case. User is signing into Simple ID analytics and needs to be
         // part of an organization (org_id) etc. Two scenarios (only #1 is
@@ -441,11 +437,22 @@ export class SidServices
         //       2. Should we check for a uuid collision? (unlikely, but huge
         //          security fail if happens)
         //
-        if (this.appIsSimpleId) {
-          userDataRow.sid['org_id'] = orgId
-          this.persist['sid'] = {};
-          this.persist.sid['org_id'] = orgId;
+        const sidObj = await this.createSidObject()
+
+        //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
+        //
+        const userDataRow = {
+          // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
+          uuid: this.userUuid,
+          email: this.persist.email,
+          secretCipherText1: this.persist.secretCipherText1,
+          secretCipherText2: this.persist.secretCipherText2,
+          apps: {},
+          sid: sidObj,
+          address: this.persist.address,
         }
+        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
+
         // Write this to the user data table:
         await this.tablePutWithIdpCredentials( userDataRow )
 
@@ -458,20 +465,17 @@ export class SidServices
         //       the plain text uuid.
 
         //TODO: Review this with AC
-
-        // if (!this.appIsSimpleId) {
-          const plainTextUuid = this.userUuid
-          const walletUuidMapRow = {
-            wallet_address: this.persist.address,
-            app_to_enc_uuid_map: {}
-          }
-          walletUuidMapRow.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
-          //
-          // TODO: Make this use Cognito to get write permission to the DB (for the
-          //       time being we're using an AWS_SECRET):
-          // TODO: Make this update / append when needed too (here it's new data so it's okay)
-          await walletToUuidMapTablePut(walletUuidMapRow)
-        // }
+        const plainTextUuid = this.userUuid
+        const walletUuidMapRow = {
+          wallet_address: this.persist.address,
+          app_to_enc_uuid_map: {}
+        }
+        walletUuidMapRow.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
+        //
+        // TODO: Make this use Cognito to get write permission to the DB (for the
+        //       time being we're using an AWS_SECRET):
+        // TODO: Make this update / append when needed too (here it's new data so it's okay)
+        await walletToUuidMapTablePut(walletUuidMapRow)
 
         //  4. d)  Create and store Wallet Analytics Data
         //         (simple_id_cust_analytics_data_v001)
@@ -488,7 +492,7 @@ export class SidServices
         //   we want to do. 
         //   see line 609 for how this will be returned
         signUpMnemonicReveal = true;
-        
+
         console.log('DBG: DELETE this comment after debugging / system ready')
         console.log('*******************************************************')
         console.log('Eth Wallet:')
@@ -504,6 +508,11 @@ export class SidServices
     } else if (authenticated) {
       // Phase 2 of signIn flow:
       //////////////////////////
+      // 0. Update the key IDs from the token in case we need to encrypt
+      //    a public key
+      const keyAssignments = await this.getKeyAssignmentFromTokenAttr()
+      this.keyId1 = keyAssignments['kfa1']
+      this.keyId2 = keyAssignments['kfa2']
 
       // 1. Fetch the encrypted secrets from Dynamo
       //
@@ -516,9 +525,9 @@ export class SidServices
       // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
       //
       const secretPlainText1 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText1)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
       const secretPlainText2 =
-        await this.decryptKeyAssignmentWithIdpCredentials(this.persist.secretCipherText2)
+        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
 
       // 3. Merge the secrets to recover the keychain
       //
@@ -532,47 +541,39 @@ export class SidServices
 
       this.userUuid = userData.uuid
 
-      let userDataDbNeedsUpdate = false
-      // 4.1 Here Justin appears to be checking if a user has sid data and
-      //     adds that to the perstence model, otherwise he check if the app is
-      //     simpleID and creates and stores it in the User Data DB.
-      if(userData && userData.sid && userData.sid.org_id) {
-        this.persist.sid = userData && userData.sid ? userData.sid : null;
-      } else {
-        //If this is coming from the SimpleID app, need to make sure a user that may have existed before
-        //can still create an org
-        if (this.appIsSimpleId) {
-          let orgId = (this.appIsSimpleId) ?
-            await this.createOrganizationId(this.userUuid) : undefined
-          this.persist['sid'] = {};
-          this.persist.sid['org_id'] = orgId;
-          userData['sid'] = {};
-          userData.sid['org_id'] = orgId;
-          userDataDbNeedsUpdate = true
-        } else {
-          this.persist['sid'] = userData.sid;
-        }
-      }
-
       // 5. If the user has never signed into this App before, we need to update
       //    the appropriate tables with the user's data unless this is happening on the hosted-wallet side of things:
       //
-      /* REMOVE Test code when working ****************************************/
       if(hostedApp !== true) {
+
+        /* REMOVE Test code when working ****************************************/
         const oldAppId = this.appId
         if (TEST_SIGN_USER_UP_TO_NEW_APP) {
           this.appId = `new-app-id-random-authd-${Date.now()}`
         }
         // See also: BEGIN REMOVE ~10 lines down
         /* END REMOVE ***********************************************************/
+
+        let userDataDbNeedsUpdate = false
         if (!userData.apps.hasOwnProperty(this.appId)) {
           console.log('First time logging into this app, updating associate DBs')
           userData.apps[this.appId] = {}
           userDataDbNeedsUpdate = true
 
+          if (this.appIsSimpleId) {
+            const sidObj = await this.createSidObject()
+            userData.sid = sidObj
+
+            this.persist['sid'] = sidObj
+            userDataDbNeedsUpdate = true
+          } else {
+            this.persist.sid = userData && userData.sid ? userData.sid : undefined;
+          }
+
           const authenticatedUser = true
           await this.signUserUpToNewApp(authenticatedUser)
         }
+
         // BEGIN REMOVE
         // restore appId
         this.appId = oldAppId
@@ -626,6 +627,35 @@ export class SidServices
     }
   }
 
+  getUserDetails = async () => {
+    try {
+      if (!this.cognitoUser) {
+        this.cognitoUser = await Auth.currentAuthenticatedUser()
+      }
+      return await Auth.userAttributes(this.cognitoUser)
+    } catch (suppressedError) {
+      console.log(`WARN: Unable to get user details from token.\n${suppressedError}`)
+    }
+    return undefined
+  }
+
+  getKeyAssignmentFromTokenAttr = async () => {
+    console.log('getKeyAssignmentFromTokenAttr:')
+    console.log('- - - - - - - - - - - - - - - - ')
+    const userAttributes = await this.getUserDetails()
+    const keyAssignments = {}
+    for (const userAttribute of userAttributes) {
+      if (userAttribute.getName() === 'custom:kfa1') {
+        console.log(`returning kfa1: ${userAttribute.getValue()}`)
+        keyAssignments['kfa1'] = userAttribute.getValue()
+      } else if (userAttribute.getName() === 'custom:kfa2') {
+        console.log(`returning kfa2: ${userAttribute.getValue()}`)
+        keyAssignments['kfa2'] = userAttribute.getValue()
+      }
+    }
+    return keyAssignments
+  }
+
 
 
 /******************************************************************************
@@ -638,10 +668,11 @@ export class SidServices
    * createOrganizationId
    *
    * Notes:  This method generates an organization id and then populates the
-   *         Organization Data Table and User Data Tables with the
-   *         newly created organization id.
+   *         Organization Data Table with the newly created organization id.
+   *
+   *         @return orgId, the newly created organization id
    */
-  createOrganizationId = async(aUserUuid) => {
+  createOrganizationId = async(aUserUuid, aUserPubKey, aUserPriKey) => {
     const orgId = uuidv4()
 
     let sub = undefined
@@ -654,8 +685,36 @@ export class SidServices
       throw Error('ERROR: Failed to get id from Identity Pool.')
     }
 
+    const orgPriKey = eccrypto.generatePrivate()
+    const orgPubKey = eccrypto.getPublic(orgPriKey)
+    let priKeyCipherText = undefined
+    try {
+      priKeyCipherText = await eccrypto.encrypt(aUserPubKey, orgPriKey)
+    } catch (error) {
+      throw new Error(`ERROR: Creating organization id. Failed to create private key cipher text.\n${error}`)
+    }
+
+    if (TEST_ASYMMETRIC_DECRYPT) {
+      try {
+        const recoveredPriKey =
+          await eccrypto.decrypt(aUserPriKey, priKeyCipherText)
+
+        if (recoveredPriKey.toString('hex') !== orgPriKey.toString('hex')) {
+          throw new Error(`Recovered private key does not match private key:\nrecovered:${recoveredPriKey[0].toString('hex')}\noriginal:${orgPriKey.toString('hex')}\n`);
+        }
+      } catch (error) {
+        throw new Error(`ERROR: testing asymmetric decryption.\n${error}`)
+      }
+    }
+
     const organizationDataRowObj = {
       org_id: orgId,
+      cryptography: {
+        pub_key: orgPubKey,
+        pri_key_ciphertexts: {
+          [aUserUuid] : priKeyCipherText,
+        }
+      },
       owner: {
         sub: sub,
         uuid: aUserUuid,
@@ -671,6 +730,30 @@ export class SidServices
     }
 
     return orgId
+  }
+
+  createSidObject = async() => {
+    if (!this.appIsSimpleId) {
+      return {}
+    }
+
+    const priKey = eccrypto.generatePrivate()
+    const pubKey = eccrypto.getPublic(priKey)
+    const priKeyCipherText =
+      await this.encryptWithKmsUsingIdpCredentials(this.keyId1, priKey)
+
+    const orgId = await this.createOrganizationId(this.userUuid, pubKey, priKey)
+
+    let sidObj = {
+      org_id: orgId,
+      pub_key: pubKey,
+      pri_key_cipher_text: priKeyCipherText,
+    }
+
+    this.persist['sid'] = sidObj
+    this.neverPersist.priKey = priKey
+
+    return sidObj
   }
 
   /**
@@ -769,7 +852,7 @@ export class SidServices
     console.log(`  this.userUuid: ${this.userUuid}`)
     console.log(`  address: ${this.persist.address}`)
     //We should only be doing this if the request is coming from a regular app.
-    //If the request is coming from wallet.simpleid.xyz, the experience needs to be 
+    //If the request is coming from wallet.simpleid.xyz, the experience needs to be
     //different.
     if(hostedApp !== true) {
     if (isAuthenticatedUser) {
@@ -789,12 +872,16 @@ export class SidServices
     // 2. Update the Wallet Analytics Data table:
     //
     // TODO:
-    await walletAnalyticsDataTableAddWalletForAnalytics()
+    console.log(`DBG: signUserUpToNewApp calling walletAnalyticsDataTableAddWalletForAnalytics`)
+    await walletAnalyticsDataTableAddWalletForAnalytics(
+      this.persist.address, this.appId)
     // 3. Update the Wallet to UUID Map table:
     //
     // TODO: need to encrypt the uuid with the app devs PK
     //
     const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
+    console.log(`DBG: signUserUpToNewApp calling walletToUuidMapTableAddCipherTextUuidForAppId`)
+    console.log(`     (${this.persist.address}, ${plainTextUuid}, ${this.appId})`)
     await walletToUuidMapTableAddCipherTextUuidForAppId(
       this.persist.address, plainTextUuid, this.appId)
     }
@@ -853,7 +940,8 @@ export class SidServices
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
      //
-     await walletAnalyticsDataTableAddWalletForAnalytics()
+     await walletAnalyticsDataTableAddWalletForAnalytics(
+       this.persist.address, this.appId)
 
      // 3. Create an entry for them in the Wallet to UUID Map
      //
@@ -987,7 +1075,7 @@ export class SidServices
  *                                                                            *
  ******************************************************************************/
 
-  encryptKeyAssignmentWithIdpCredentials = async (keyId, plainText) => {
+  encryptWithKmsUsingIdpCredentials = async (keyId, plainText) => {
     await this.requestIdpCredentials()
 
     // Now that the AWS creds are configured with the cognito login above, we
@@ -1020,8 +1108,8 @@ export class SidServices
   }
 
 
-  decryptKeyAssignmentWithIdpCredentials = async (cipherText) => {
-    console.log('decryptKeyAssignmentWithIdpCredentials')
+  decryptWithKmsUsingIdpCredentials = async (cipherText) => {
+    console.log('decryptWithKmsUsingIdpCredentials')
     console.log('-------------------------------------------------------------')
 
     await this.requestIdpCredentials()
