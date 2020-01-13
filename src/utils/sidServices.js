@@ -1,5 +1,6 @@
 import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
+import { getGlobal } from 'reactn';
 
 import { walletAnalyticsDataTablePut,
          walletToUuidMapTablePut,
@@ -326,10 +327,18 @@ export class SidServices
    *             - block specific calling appId?
    */
   signOut = async () => {
-    try {
-      await Auth.signOut()
-    } catch (error) {
-      throw Error(`ERROR: Signing out encounted an error.\n${error}`)
+    const { hostedApp } = getGlobal()
+    //For now, if the user is on the hosted wallet page and not in a third parth app
+    //We'll clear localStorage and refresh
+    if(hostedApp) {
+      localStorage.clear();
+      window.location.reload();
+    } else {
+      try {
+        await Auth.signOut()
+      } catch (error) {
+        throw Error(`ERROR: Signing out encounted an error.\n${error}`)
+      }
     }
   }
 
@@ -367,6 +376,8 @@ export class SidServices
    *
    */
   answerCustomChallenge = async (anAnswer) => {
+    let signUpMnemonicReveal;
+    const { hostedApp } = getGlobal();
     try {
       this.cognitoUser =
         await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
@@ -382,7 +393,6 @@ export class SidServices
     if (authenticated && this.signUpUserOnConfirm) {
       // Phase 2 of signUp flow:
       //////////////////////////
-
       try {
         //  0. Generate uuid
         //
@@ -498,6 +508,8 @@ export class SidServices
 
         //  5. Email / Save PDF secret
         // TODO: Justin solution to share w/ user
+        signUpMnemonicReveal = true;
+        
         console.log('DBG: DELETE this comment after debugging / system ready')
         console.log('*******************************************************')
         console.log('Eth Wallet:')
@@ -564,42 +576,44 @@ export class SidServices
       }
 
       // 5. If the user has never signed into this App before, we need to update
-      //    the appropriate tables with the user's data:
+      //    the appropriate tables with the user's data unless this is happening on the hosted-wallet side of things:
       //
       /* REMOVE Test code when working ****************************************/
-      const oldAppId = this.appId
-      if (TEST_SIGN_USER_UP_TO_NEW_APP) {
-        this.appId = `new-app-id-random-authd-${Date.now()}`
+      if(hostedApp !== true) {
+        const oldAppId = this.appId
+        if (TEST_SIGN_USER_UP_TO_NEW_APP) {
+          this.appId = `new-app-id-random-authd-${Date.now()}`
+        }
+        // See also: BEGIN REMOVE ~10 lines down
+        /* END REMOVE ***********************************************************/
+        if (!userData.apps.hasOwnProperty(this.appId)) {
+          console.log('First time logging into this app, updating associate DBs')
+          userData.apps[this.appId] = {}
+          userDataDbNeedsUpdate = true
+
+          const authenticatedUser = true
+          await this.signUserUpToNewApp(authenticatedUser)
+        }
+        // BEGIN REMOVE
+        // restore appId
+        this.appId = oldAppId
+        // END REMOVE
+
+
+        // 6. If we modified the User Data, update the DB version:
+        //
+        if (userDataDbNeedsUpdate) {
+          await this.tablePutWithIdpCredentials( userData )
+          userDataDbNeedsUpdate = false
+        }
+
+        // TODO: Justin solution to persist (local storage in encrypted state so
+        //       no need to hit AWS (faster, cheaper))
+        console.log('DBG: DELETE this comment after debugging / system ready')
+        console.log('*******************************************************')
+        console.log('Eth Wallet:')
+        console.log(this.neverPersist.wallet)
       }
-      // See also: BEGIN REMOVE ~10 lines down
-      /* END REMOVE ***********************************************************/
-      if (!userData.apps.hasOwnProperty(this.appId)) {
-        console.log('First time logging into this app, updating associate DBs')
-        userData.apps[this.appId] = {}
-        userDataDbNeedsUpdate = true
-
-        const authenticatedUser = true
-        await this.signUserUpToNewApp(authenticatedUser)
-      }
-      // BEGIN REMOVE
-      // restore appId
-      this.appId = oldAppId
-      // END REMOVE
-
-
-      // 6. If we modified the User Data, update the DB version:
-      //
-      if (userDataDbNeedsUpdate) {
-        await this.tablePutWithIdpCredentials( userData )
-        userDataDbNeedsUpdate = false
-      }
-
-      // TODO: Justin solution to persist (local storage in encrypted state so
-      //       no need to hit AWS (faster, cheaper))
-      console.log('DBG: DELETE this comment after debugging / system ready')
-      console.log('*******************************************************')
-      console.log('Eth Wallet:')
-      console.log(this.neverPersist.wallet)
     }
 
     if (authenticated) {
@@ -610,7 +624,8 @@ export class SidServices
         console.log('ERROR persisting SID services data to local store.')
       }
     }
-    return authenticated;
+    const results = { authenticated, signUpMnemonicReveal }
+    return results;
   }
 
   isAuthenticated = async (anEmail=undefined) => {
@@ -798,13 +813,17 @@ export class SidServices
    *         catch statements on individual promises.
    */
   signUserUpToNewApp = async(isAuthenticatedUser) => {
+    const { hostedApp } = getGlobal()
     console.log(`DBG: signUserUpToNewApp`)
     console.log('-------------------------------------------------------------')
     console.log(`  isAuthenticatedUser: ${isAuthenticatedUser}`)
     console.log(`  this.appId: ${this.appId}`)
     console.log(`  this.userUuid: ${this.userUuid}`)
     console.log(`  address: ${this.persist.address}`)
-
+    //We should only be doing this if the request is coming from a regular app.
+    //If the request is coming from wallet.simpleid.xyz, the experience needs to be 
+    //different.
+    if(hostedApp !== true) {
     if (isAuthenticatedUser) {
       // 1.a) Update the User Data Table if the user is authenticated.
       //
@@ -823,14 +842,14 @@ export class SidServices
     //
     // TODO:
     await walletAnalyticsDataTableAddWalletForAnalytics()
-
     // 3. Update the Wallet to UUID Map table:
     //
     // TODO: need to encrypt the uuid with the app devs PK
     //
     const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
-     await walletToUuidMapTableAddCipherTextUuidForAppId(
-       this.persist.address, plainTextUuid, this.appId)
+    await walletToUuidMapTableAddCipherTextUuidForAppId(
+      this.persist.address, plainTextUuid, this.appId)
+    }
   }
 
 /******************************************************************************
