@@ -18,7 +18,7 @@ const _docClientAK = new AWS.DynamoDB.DocumentClient()
 const DEBUG_DYNAMO = ( process.env.REACT_APP_DEBUG_DYNAMO ||
                        process.env.DEBUG_DYNAMO) ? true : false
 
-function dbRequestDebugLog(anOperation, params, error) {
+export function dbRequestDebugLog(anOperation, params, error) {
   try {
     if (DEBUG_DYNAMO) {
       const indentSpaces = 4
@@ -51,6 +51,35 @@ export async function tableGet(aTable, aKeyName, aKeyValue) {
     _docClientAK.get(params, (err, data) => {
       if (err) {
         dbRequestDebugLog('tableGet', params, err)
+
+        reject(err)
+      } else {
+        resolve(data)
+      }
+    })
+  })
+}
+
+// TODO:
+//    - One day we'll bump up against the limitations of this (see:
+//      https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html).
+//      Specifically "A single operation can retrieve up to 16 MB of data, which can contain as many as 100 items."
+//    - Add ProjectionExpression to limit data fetched
+export async function tableBatchGet(aTable, anArrOfKeyValuePairs) {
+  var params = {
+    RequestItems: {
+      [ aTable ]: {
+        Keys: anArrOfKeyValuePairs
+      }
+    }
+  }
+
+  dbRequestDebugLog('tableBatchGet', params, 'No error--just checking things out')
+
+  return new Promise((resolve, reject) => {
+    _docClientAK.batchGet(params, (err, data) => {
+      if (err) {
+        dbRequestDebugLog('tableBatchGet', params, err)
 
         reject(err)
       } else {

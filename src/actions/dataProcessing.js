@@ -22,26 +22,26 @@ export async function handleData(dataToProcess) {
       const users = Object.keys(appData.Item.analytics);
       console.log(appData);
       switch(data.filter.filter) {
-        case "Smart Contract Transactions": 
+        case "Smart Contract Transactions":
           results = await filterByContract(users, data.contractAddress);
           break;
-        case "All Users": 
+        case "All Users":
           //placeholder for all users
           results = users;
           break;
-        case "Last Seen": 
+        case "Last Seen":
           //placeholder for Last Seen
           results = await filterByLastSeen(appData.Item.analytics, data);
           break;
-        case "Wallet Balance": 
+        case "Wallet Balance":
           //placeholder for Wallet Balance
           results = await filterByWalletBalance(users, data.numberRange)
           break;
-        case "Total Transactions": 
+        case "Total Transactions":
           //placeholder for Total Transactions
           results = await fetchTotalTransactions(users);
           break;
-        default: 
+        default:
           break;
       }
       return results;
@@ -64,6 +64,9 @@ export async function handleData(dataToProcess) {
     const createProject = await getSidSvcs().createAppId(orgId, appObject)
     console.log(createProject)
     return createProject
+  } else if (type === 'AC Terrible Test') {
+    await getSidSvcs().getUuidsForWalletAddresses()
+    return 'Better return something or no tomorrow.'
   }
   closeWidget();
 }
@@ -82,7 +85,7 @@ export function fetchFromURL(url, functionType) {
   console.log("API URL: ", url);
   const options = {
     method: 'GET',
-    uri: url, 
+    uri: url,
     headers,
     json: true
   }
@@ -111,7 +114,7 @@ export async function filterByLastSeen(users, data) {
   const { dateRange } = data;
   const datum = Date.parse(dateRange.date);
   let filteredList = []
-  
+
   Object.keys(users)
   .forEach( (key) => {
     if (dateRange.rangeType === "Before" && users[key].lastSeen && users[key].lastSeen < datum) {
@@ -120,7 +123,7 @@ export async function filterByLastSeen(users, data) {
       filteredList.push(key);
     }
   });
-  return filteredList;    
+  return filteredList;
 }
 
 export async function filterByWalletBalance(users, balanceCriteria) {

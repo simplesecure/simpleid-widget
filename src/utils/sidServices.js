@@ -2,6 +2,8 @@ import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
 import { getGlobal } from 'reactn';
 
+import { dbRequestDebugLog } from './dynamoBasics.js'
+
 import { walletAnalyticsDataTablePut,
          walletToUuidMapTablePut,
          organizationDataTableGet,
@@ -10,6 +12,7 @@ import { walletAnalyticsDataTablePut,
          unauthenticatedUuidTableGetByUuid,
          unauthenticatedUuidTablePut,
          unauthenticatedUuidTableAppendAppId,
+         walletToUuidMapTableGetUuids,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableGetAppPublicKey,
          walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
@@ -413,10 +416,11 @@ export class SidServices
           email: this.persist.email,
           secretCipherText1: this.persist.secretCipherText1,
           secretCipherText2: this.persist.secretCipherText2,
-          apps: {},
+          apps: {
+            [ this.appId ] : {}             // Empty Contact Prefs Etc.
+          },
           sid: sidObj,
         }
-        userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
 
         // Write this to the user data table:
         await this.tablePutWithIdpCredentials( userDataRow )
@@ -513,6 +517,10 @@ export class SidServices
 
         let userDataDbNeedsUpdate = false
         if (!userData.apps.hasOwnProperty(this.appId)) {
+          // TODO: make this a partial update using the idp partial update (writing
+          //       the buffers with the secrets etc. is costly and dangerous--failed write
+          //       could eliminate the cipherText secrets).
+          //
           userDataDbNeedsUpdate = true
 
           userData.apps[this.appId] = {}
@@ -522,12 +530,15 @@ export class SidServices
             userData.sid = sidObj
             this.persist.sid = sidObj
           } else {
-            this.persist.sid = userData && userData.sid ? userData.sid : undefined;
           }
 
           const authenticatedUser = true
           await this.signUserUpToNewApp(authenticatedUser)
         }
+
+        // WARNING: Moving this will break the SID Analytics App
+        //
+        this.persist.sid = userData && userData.sid ? userData.sid : undefined;
 
         // BEGIN REMOVE
         // restore appId
@@ -546,6 +557,8 @@ export class SidServices
 
     if (authenticated) {
       try {
+        console.log('this.perist')
+        console.log(JSON.stringify(this.persist))
         // TODO: obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
         localStorage.setItem(SID_SVCS_LS_KEY, JSON.stringify(this.persist))
       } catch (suppressedError) {
@@ -611,6 +624,76 @@ export class SidServices
  * SimpleID Analytics Tool Related Methods                                    *
  *                                                                            *
  ******************************************************************************/
+
+  /**
+   * getUuidsForWalletAddresses:
+   *
+   * Notes: Given a list of wallet addresses for an app ID, this method
+   *        fetches the uuids corresponding to the wallet addresses.
+   *
+   *        This method only works if this user has access to the organization
+   *        private key.
+   */
+  getUuidsForWalletAddresses = async (
+      anAppId="418fb762-f234-4a21-897a-2a598fd6965d",
+      theWalletAddresses=["0xD6E46cF625f4edcAdF79344EE6356b6DFaf1B1Df",
+                          "0x27C40E3a8114f442dad71756F52Bd74a19a94ADE"]
+    ) => {
+
+    let uuids = []
+
+    // 1. Fetch the encrypted uuids for the given wallet addresses and appID:
+    //
+    const encryptedUuids = []
+    const encryptedUuidMaps = await walletToUuidMapTableGetUuids(theWalletAddresses)
+    for (const encryptedUuidMap of encryptedUuidMaps) {
+      try {
+        const cipherObj = encryptedUuidMap.app_to_enc_uuid_map[anAppId]
+        encryptedUuids.push(cipherObj)
+      } catch (suppressedError) {
+        continue
+      }
+    }
+
+    // 2. Fetch the private key required to decrypt the uuids:
+    //
+    // TODO:
+    //      - Make this efficient (this is awful)
+    let orgEcPriKey = undefined
+    try {
+      const orgData = await organizationDataTableGet(this.persist.sid.org_id)
+      const cipherObj = orgData.Item.cryptography.pri_key_ciphertexts[this.persist.userUuid]
+
+      const userEcPriKeyCipherText = this.persist.sid.pri_key_cipher_text
+      const userEcPriKey = await this.decryptWithKmsUsingIdpCredentials(userEcPriKeyCipherText)
+
+      orgEcPriKey = await eccrypto.decrypt(userEcPriKey, cipherObj)
+    } catch (error) {
+      throw new Error(`Failed to fetch user EC private key.\n${error}`)
+    }
+
+    // 3. Decrypt the encrypted uuids and return them:
+    //
+    let failedDecryptions = 0
+    for (const encryptedUuidCipherText of encryptedUuids) {
+      try {
+        const uuid = await eccrypto.decrypt(orgEcPriKey, encryptedUuidCipherText)
+        uuids.push(uuid.toString())
+      } catch (suppressedError) {
+        failedDecryptions++
+      }
+    }
+
+    console.log('uuids:')
+    console.log(uuids)
+
+    return uuids
+  }
+
+  getEmailsForUuids = async(theUuids) => {
+
+  }
+
 
   /**
    * createOrganizationId
@@ -696,6 +779,7 @@ export class SidServices
       org_id: orgId,
       pub_key: pubKey,
       pri_key_cipher_text: priKeyCipherText,
+      apps: {}
     }
 
     this.persist.sid = sidObj
@@ -712,6 +796,8 @@ export class SidServices
    *         newly created organization id.
    */
   createAppId = async(anOrgId, anAppObject) => {
+    // await this.getUuidsForWalletAddresses()
+    // return
     // TODO: 1. Might want to check if the user has the org_id in their sid
     //       user data property.
     //       2. Might want to check if the user is listed as a member in the
@@ -758,8 +844,10 @@ export class SidServices
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
 
-    // 3. TODO: Update the user data using Cognito IDP (the 'sid' property)
-    //
+    // AC: Not sure if this is needed.
+    // // 3. TODO: Update the user data using Cognito IDP (the 'sid' property)
+    // //
+    // await this.tableUpdateWithIdpCredentials('sid', 'apps', appId, {})
 
     return appId
   }
@@ -823,8 +911,6 @@ export class SidServices
     await walletAnalyticsDataTableAddWalletForAnalytics(this.persist.address, this.appId)
 
     // 3. Update the Wallet to UUID Map table:
-    //
-    // TODO: need to encrypt the uuid with the app devs PK
     //
     const appPublicKey = await walletAnalyticsDataTableGetAppPublicKey(this.appId)
     const userUuidCipherText =
@@ -1143,4 +1229,63 @@ export class SidServices
 
     return awsDynDbRequest
   }
+
+  // TODO: might not be needed (Read Modify Write might be sufficient)
+  //       hold on to this for the time being:
+  //
+  // // Rename: adapeted from dynamoBasics method tableUpdateAppendNestedObjectProperty
+  // tableUpdateWithIdpCredentials = async (aNestedObjKey, a2ndNestedObjKey, aPropName, aPropValue) => {
+  //   // Adapted from the JS on:
+  //   //    https://aws.amazon.com/blogs/mobile/building-fine-grained-authorization-using-amazon-cognito-user-pools-groups/
+  //   //
+  //   await this.requestIdpCredentials()
+  //
+  //   // Modified to use getPromise from:
+  //   //    https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Credentials.html#get-property
+  //   //
+  //   let sub = undefined
+  //   try {
+  //     sub = AWS.config.credentials.identityId
+  //   } catch (error) {
+  //     throw Error(`ERROR: getting credential identityId.\n${error}`)
+  //   }
+  //
+  //   const docClient = new AWS.DynamoDB.DocumentClient(
+  //     { region: process.env.REACT_APP_REGION })
+  //
+  //
+  //   // Taken from dynamoBasics method tableUpdateAppendNestedObjectProperty
+  //   const dbParams = {
+  //     TableName: process.env.REACT_APP_UD_TABLE,
+  //     Key: {
+  //       sub: sub
+  //     },
+  //     UpdateExpression: 'set #objName.#objName2.#objPropName = :propValue',
+  //     ExpressionAttributeNames: {
+  //       '#objName': aNestedObjKey,
+  //       '#objName2': a2ndNestedObjKey,
+  //       '#objPropName': aPropName
+  //     },
+  //     ExpressionAttributeValues: {
+  //       ':propValue': aPropValue
+  //     },
+  //     ReturnValues: 'NONE'
+  //   }
+  //
+  //   const awsDynDbRequest = await new Promise(
+  //     (resolve, reject) => {
+  //       docClient.update(dbParams, (err, data) => {
+  //         if (err) {
+  //           dbRequestDebugLog('tableUpdateWithIdpCredentials', dbParams, err)
+  //
+  //           reject(err)
+  //         } else {
+  //           resolve(data)
+  //         }
+  //       })
+  //     }
+  //   )
+  //
+  //   return awsDynDbRequest
+  // }
 }
