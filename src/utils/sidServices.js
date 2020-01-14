@@ -763,7 +763,7 @@ export class SidServices
    *         Organization Data Table and Wallet Analytics Tables with the
    *         newly created organization id.
    */
-  createAppId = async(anOrgId, anAppName) => {
+  createAppId = async(anOrgId, anAppObject) => {
     // TODO: 1. Might want to check if the user has the org_id in their sid
     //       user data property.
     //       2. Might want to check if the user is listed as a member in the
@@ -780,7 +780,7 @@ export class SidServices
     try {
       // TODO: See TODO.3 above!
       const data = await organizationDataTableGet(anOrgId)
-      data.Item.apps[appId] = anAppName
+      data.Item.apps[appId] = anAppObject
       await organizationDataTablePut(data.Item)
     } catch (error) {
       throw new Error(`ERROR: Failed to update apps in Organization Data table.\n${error}`)
@@ -804,6 +804,7 @@ export class SidServices
         }
       }
       await walletAnalyticsDataTablePut(walletAnalyticsRowObj)
+      return appId;
     } catch (error) {
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
