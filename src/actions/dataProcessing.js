@@ -1,6 +1,6 @@
 import { getGlobal } from 'reactn';
 import { closeWidget } from './postMessage';
-import { walletAnalyticsDataTableGet } from '../utils/dynamoConveniences';
+import { walletAnalyticsDataTableGet, organizationDataTableGet } from '../utils/dynamoConveniences';
 import { getSidSvcs } from '../index';
 const rp = require('request-promise');
 const ethers = require('ethers');
@@ -67,9 +67,42 @@ export async function handleData(dataToProcess) {
     console.log("let's ping this bad boy")
     console.log(data);
   } else if(type === 'notifications') {
+    const { appId, address } = data
+    let results = undefined
     console.log("TIME TO FETCH THE NOTIFICATIONS")
     console.log(data)
-    let results = "nada";
+    //First we need to fetch the org_id because the app doesn't have it
+    //TODO: should we give the app the org id? Are there any security concerns in doing so?
+    const appData = await walletAnalyticsDataTableGet(appId);
+    if(appData.Item) {
+      const org_id = appData.Item.org_id
+      
+      //Now with the org_id, we can fetch the notification info from the org_table
+      const orgData = await organizationDataTableGet(org_id);
+      if(orgData.Item) {
+        const thisApp = orgData.Item.apps[appId]
+        const { currentSegments, notifications } = thisApp;
+        let notificationsToReturn = []
+        //Check to see if there are any notifications for this app
+        if(notifications.length > 0) {
+          for(const notification of notifications) {
+            //Check the segment for the logged in user
+            const thisSegment = currentSegments.filter(a => a.id === notification.segmentId)[0]
+            const users = thisSegment.users;
+            const thisUser = users.filter(a => a === address)[0];
+            console.log("THIS USER FOUND", thisUser);
+            notificationsToReturn.push(notification);
+          }
+          results = notificationsToReturn;
+        } else {
+          results = "No available notifications"
+        }
+      } else {
+        return "Error fetching org data"
+      }
+    } else { 
+      results = "Error fetching app data"
+    }
     return results;
   } else if(type === 'create-project') {
     const { appObject, orgId } = data;
