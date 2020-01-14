@@ -1,5 +1,6 @@
 import { tableGet,
          tablePut,
+         tableQuerySpecificItem,
          tableGetBySecondaryIndex,
          tableUpdateListAppend,
          tableUpdateAppendNestedObjectProperty } from './dynamoBasics.js'
@@ -17,6 +18,31 @@ export async function walletAnalyticsDataTablePut(anWalletAnalyticsRowObj) {
     process.env.REACT_APP_AD_TABLE,
     anWalletAnalyticsRowObj
   )
+}
+
+export async function walletAnalyticsDataTableGetAppPublicKey(anAppId) {
+  let walletAnalyticsRowObjs = undefined
+  try {
+    walletAnalyticsRowObjs = await tableQuerySpecificItem(
+      process.env.REACT_APP_AD_TABLE,
+      process.env.REACT_APP_AD_TABLE_PK,
+      anAppId,
+      'public_key'
+    )
+
+    const appPublicKey = walletAnalyticsRowObjs.Items[0].public_key
+    return appPublicKey
+  } catch (suppressedError) {
+    console.log(`ERROR(Suppressed): Failed to fetch public key for app ${anAppId}.\n${suppressedError}`)
+
+    try {
+      console.log('result:')
+      console.log(JSON.stringify(walletAnalyticsRowObjs, 0, 2))
+      console.log()
+    } catch (suppressErrorsForJSON) {}
+  }
+
+  return undefined
 }
 
 export async function walletToUuidMapTableGet(aWalletAddress) {

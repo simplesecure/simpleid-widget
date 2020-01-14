@@ -18,7 +18,7 @@ const _docClientAK = new AWS.DynamoDB.DocumentClient()
 const DEBUG_DYNAMO = ( process.env.REACT_APP_DEBUG_DYNAMO ||
                        process.env.DEBUG_DYNAMO) ? true : false
 
-function debugLog(anOperation, params, error) {
+function dbRequestDebugLog(anOperation, params, error) {
   try {
     if (DEBUG_DYNAMO) {
       const indentSpaces = 4
@@ -32,7 +32,7 @@ function debugLog(anOperation, params, error) {
       dbgMsg += '--------------------\n'
       dbgMsg += '  ' + String(error) + '\n'
       dbgMsg += '\n'
-      
+
       console.log(dbgMsg)
     }
   } catch(suppressedError) {}
@@ -50,7 +50,7 @@ export async function tableGet(aTable, aKeyName, aKeyValue) {
   return new Promise((resolve, reject) => {
     _docClientAK.get(params, (err, data) => {
       if (err) {
-        debugLog('tableGet', params, err)
+        dbRequestDebugLog('tableGet', params, err)
 
         reject(err)
       } else {
@@ -69,7 +69,7 @@ export async function tablePut(aTable, anObject) {
   return new Promise((resolve, reject) => {
     _docClientAK.put(params, (err, data) => {
       if (err) {
-        debugLog('tablePut', params, err)
+        dbRequestDebugLog('tablePut', params, err)
 
         reject(err)
       } else {
@@ -79,7 +79,32 @@ export async function tablePut(aTable, anObject) {
   })
 }
 
+// ProjectionExpression example here: https://www.dynamodbguide.com/querying/
+export async function tableQuerySpecificItem(aTable, aKeyName, aKeyValue, aSpecificKey) {
+  const params = {
+    TableName: aTable,
+    KeyConditionExpression: `#${aKeyName} = :${aKeyName}`,
+    ExpressionAttributeNames: {
+      [ `#${aKeyName}` ] : aKeyName
+    },
+    ExpressionAttributeValues: {
+      [ `:${aKeyName}` ] : aKeyValue
+    },
+    ProjectionExpression: aSpecificKey
+  }
 
+  return new Promise((resolve, reject) => {
+    _docClientAK.query(params, (err, data) => {
+      if (err) {
+        dbRequestDebugLog('tableQuerySpecificItem', params, err)
+
+        reject(err)
+      } else {
+        resolve(data)
+      }
+    })
+  })
+}
 
 // Adapted from: https://stackoverflow.com/questions/51134296/dynamodb-how-to-query-a-global-secondary-index
 //
@@ -102,7 +127,7 @@ export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aK
   return new Promise((resolve, reject) => {
     _docClientAK.query(params, (err, data) => {
       if (err) {
-        debugLog('tableGetBySecondaryIndex', params, err)
+        dbRequestDebugLog('tableGetBySecondaryIndex', params, err)
 
         reject(err)
       } else {
@@ -133,7 +158,7 @@ export async function tableUpdateListAppend(aTable, aPrimKeyObj, anArrayKey, anA
   return new Promise((resolve, reject) => {
     _docClientAK.update(params, (err, data) => {
       if (err) {
-        debugLog('tableUpdateListAppend', params, err)
+        dbRequestDebugLog('tableUpdateListAppend', params, err)
 
         reject(err)
       } else {
@@ -206,7 +231,7 @@ export async function tableUpdateAppendNestedObjectProperty(
   return new Promise((resolve, reject) => {
     _docClientAK.update(params, (err, data) => {
       if (err) {
-        debugLog('tableUpdateAppendNestedObjectProperty', params, err)
+        dbRequestDebugLog('tableUpdateAppendNestedObjectProperty', params, err)
 
         reject(err)
       } else {

@@ -11,6 +11,7 @@ import { walletAnalyticsDataTablePut,
          unauthenticatedUuidTablePut,
          unauthenticatedUuidTableAppendAppId,
          walletToUuidMapTableAddCipherTextUuidForAppId,
+         walletAnalyticsDataTableGetAppPublicKey,
          walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
 
 
@@ -463,14 +464,26 @@ export class SidServices
         //       from the simple_id_cust_analytics_data_v001 table and use it
         //       to asymmetricly encrypt the user uuid. For now we just pop in
         //       the plain text uuid.
+        let appPublicKey = await walletAnalyticsDataTableGetAppPublicKey(this.appId)
 
-        //TODO: Review this with AC
-        const plainTextUuid = this.userUuid
+        console.log('appPublicKey:')
+        console.log('---------------------------------------------------------')
+        console.log(`type:  ${typeof appPublicKey}`)
+        console.log(`straight output:`)
+        console.log(appPublicKey)
+        console.log(`stringified:`)
+        console.log(JSON.stringify(appPublicKey))
+
+        console.log('Before encrypt:')
+        const userUuidCipherText = (appPublicKey !== "TODO") ?
+          await eccrypto.encrypt(appPublicKey, Buffer.from(this.userUuid)) :
+           `TODO: enc ${this.userUuid} for appId ${this.appId}`
+        console.log('After Encrypt:')
         const walletUuidMapRow = {
           wallet_address: this.persist.address,
           app_to_enc_uuid_map: {}
         }
-        walletUuidMapRow.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
+        walletUuidMapRow.app_to_enc_uuid_map[this.appId] = userUuidCipherText
         //
         // TODO: Make this use Cognito to get write permission to the DB (for the
         //       time being we're using an AWS_SECRET):
@@ -758,6 +771,8 @@ export class SidServices
    *         newly created organization id.
    */
   createAppId = async(anOrgId, anAppName) => {
+    console.log(`DBG DBG DBG: sidServices::createAppId called for org_id ${anOrgId} and app name ${anAppName}`)
+    console.log('============================================================================================')
     // TODO: 1. Might want to check if the user has the org_id in their sid
     //       user data property.
     //       2. Might want to check if the user is listed as a member in the
@@ -789,6 +804,7 @@ export class SidServices
     } catch (suppressedError) {
       console.log(`WARN: Failed to fetch public key from Org Data.\n${suppressedError}`)
     }
+    console.log(`DBG: 1.5 Get the public key:  ${publicKey}`)
 
     // 2. Update the Wallet Analytics Data table
     //
@@ -800,6 +816,7 @@ export class SidServices
         analytics: {}
       }
       await walletAnalyticsDataTablePut(walletAnalyticsRowObj)
+      console.log(`DBG: 2.0 Update the Wallet Analytics Data Table:\n${JSON.stringify(walletAnalyticsRowObj, 0, 2)}`)
     } catch (error) {
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
