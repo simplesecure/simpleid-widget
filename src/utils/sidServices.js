@@ -2,7 +2,7 @@ import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
 import { getGlobal } from 'reactn';
 
-import { dbRequestDebugLog } from './dynamoBasics.js'
+//import { dbRequestDebugLog } from './dynamoBasics.js'
 
 import { walletAnalyticsDataTablePut,
          walletToUuidMapTablePut,
@@ -634,21 +634,27 @@ export class SidServices
    *        This method only works if this user has access to the organization
    *        private key.
    */
-  getUuidsForWalletAddresses = async (
-      anAppId="418fb762-f234-4a21-897a-2a598fd6965d",
-      theWalletAddresses=["0xD6E46cF625f4edcAdF79344EE6356b6DFaf1B1Df",
-                          "0x27C40E3a8114f442dad71756F52Bd74a19a94ADE"]
+  getUuidsForWalletAddresses = async (data
+      //anAppId="4e82ff0d-90bb-4c16-86d5-6729efa31787",
+      //theWalletAddresses=["0xa10a980817dF59d2C4f848e0604c920a7E4Cf313",
+      //                    "0xE2c9daA831c91b59f0153842874e0De9E45516FA"]
     ) => {
-
+    const { app_id, addresses } = data;
     let uuids = []
 
     // 1. Fetch the encrypted uuids for the given wallet addresses and appID:
     //
     const encryptedUuids = []
-    const encryptedUuidMaps = await walletToUuidMapTableGetUuids(theWalletAddresses)
+    //AC Hard-coded version:
+    //const encryptedUuidMaps = await walletToUuidMapTableGetUuids(theWalletAddresses)
+    //Justin dynamic version: 
+    const encryptedUuidMaps = await walletToUuidMapTableGetUuids(addresses)
     for (const encryptedUuidMap of encryptedUuidMaps) {
       try {
-        const cipherObj = encryptedUuidMap.app_to_enc_uuid_map[anAppId]
+        //AC Hard-coded version:
+        //const cipherObj = encryptedUuidMap.app_to_enc_uuid_map[anAppId]
+        //Justin dynamic version:
+        const cipherObj = encryptedUuidMap.app_to_enc_uuid_map[app_id]
         encryptedUuids.push(cipherObj)
       } catch (suppressedError) {
         continue
@@ -686,7 +692,7 @@ export class SidServices
 
     console.log('uuids:')
     console.log(uuids)
-
+    console.log("failed decryptions: ", failedDecryptions)
     return uuids
   }
 
@@ -1149,7 +1155,7 @@ export class SidServices
 
   // TODO: abstract the restricted sub out of this code so it's more generic and
   //       not just for restricted row access dynamos.
-  tableGetWithIdpCredentials = async () => {
+  tableGetWithIdpCredentials = async (uuids) => {
     await this.requestIdpCredentials()
 
     let sub = undefined
@@ -1168,7 +1174,6 @@ export class SidServices
       },
       TableName: process.env.REACT_APP_UD_TABLE,
     }
-
     const awsDynDbRequest = await new Promise(
       (resolve, reject) => {
         docClient.get(dbParams, (err, data) => {

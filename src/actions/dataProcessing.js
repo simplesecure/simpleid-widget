@@ -50,7 +50,19 @@ export async function handleData(dataToProcess) {
     }
   } else if(type === 'email messaging') {
     //Here we will do something similar to segment data except we will send the appropriate message
-    //Data should include the email template to use
+    //Data should include the following:
+    //const { addresses, app_id, template, subject } = data;
+    //Commented out because we don't need each individual item separately
+    const uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
+
+    //Now we need to take this list and fetch the emails for the users
+    //In production we should not print this and not return this to the client
+
+
+    //Once we have the emails, send them to the email service lambda with the template
+    //const { template } = data;
+    //When we finally finish this function, we'll need to return a success indicator rather than a list of anything
+    return uuidList
   } else if(type === 'ping') {
     console.log("let's ping this bad boy")
     console.log(data);
@@ -65,7 +77,7 @@ export async function handleData(dataToProcess) {
     console.log(createProject)
     return createProject
   } else if (type === 'AC Terrible Test') {
-    await getSidSvcs().getUuidsForWalletAddresses()
+    await getSidSvcs().getUuidsForWalletAddresses(data)
     return 'Better return something or no tomorrow.'
   }
   closeWidget();
