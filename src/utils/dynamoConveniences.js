@@ -34,12 +34,6 @@ export async function walletAnalyticsDataTableGetAppPublicKey(anAppId) {
     return appPublicKey
   } catch (suppressedError) {
     console.log(`ERROR(Suppressed): Failed to fetch public key for app ${anAppId}.\n${suppressedError}`)
-
-    try {
-      console.log('result:')
-      console.log(JSON.stringify(walletAnalyticsRowObjs, 0, 2))
-      console.log()
-    } catch (suppressErrorsForJSON) {}
   }
 
   return undefined

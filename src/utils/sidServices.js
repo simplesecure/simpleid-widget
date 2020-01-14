@@ -14,6 +14,9 @@ import { walletAnalyticsDataTablePut,
          walletAnalyticsDataTableGetAppPublicKey,
          walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
 
+import { jsonParseToBuffer,
+         getRandomString } from './misc.js'
+
 
 
 const AWS = require('aws-sdk')
@@ -31,8 +34,6 @@ const eccrypto = require('eccrypto')
 
 
 
-const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
-
 // TODO: clean up for security best practices
 //       currently pulled from .env
 //       see: https://create-react-app.dev/docs/adding-custom-environment-variables/
@@ -49,6 +50,7 @@ Amplify.configure({
 AWS.config.update({ region: process.env.REACT_APP_REGION })
 
 
+const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 const SID_ANALYTICS_APP_ID = '00000000000000000000000000000000'
 
 // TODO: move these to dynamo / lambda system in milestone 2
@@ -68,6 +70,13 @@ const TEST_ASYMMETRIC_DECRYPT = true
  ******************************************************************************/
 const TEST_SIGN_USER_UP_TO_NEW_APP = false
 
+// Local storage key for sid services data and static symmetric encryption
+// key obfuscate locally stored data:
+const SID_SVCS_LS_KEY = 'SID_SVCS'
+//const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3' TODO: AC code, do we need this? Wasn't being used
+//                                                        Justin: - this is going to get used to obfuscate
+//                                                                  our local store when everything's done.
+
 
 // TODO: move this to dynamo / lambda system in milestone 2 (the max keys value so it's dynamic)
 //   - after moving we'll make these undefined and the lambda will set them for the user
@@ -85,39 +94,6 @@ function getKeyAssignments() {
   }
 }
 
-// Local storage key for sid services data and static symmetric encryption
-// key obfuscate locally stored data:
-const SID_SVCS_LS_KEY = 'SID_SVCS'
-//const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3' TODO: AC code, do we need this? Wasn't being used
-//                                                        Justin: - this is going to get used to obfuscate
-//                                                                  our local store when everything's done.
-
-/**
- * jsonParseToBuffer:
- *
- * Notes:
- *    Adapted from: https://stackoverflow.com/questions/34557889/how-to-deserialize-a-nested-buffer-using-json-parse
- *
- * TODO:
- *        1. Refactor to common area.
- *
- */
-function jsonParseToBuffer(aStringifiedObj) {
-  return JSON.parse(
-    aStringifiedObj,
-    (k, v) => {
-      if ( v != null               &&
-           typeof v === 'object'   &&
-           'type' in v             &&
-           v.type === 'Buffer'     &&
-           'data' in v             &&
-           Array.isArray(v.data) ) {
-        return Buffer.from(v.data)
-      }
-      return v
-    }
-  )
-}
 
 export class SidServices
 {
@@ -138,45 +114,41 @@ export class SidServices
    *
    */
   constructor(anAppId) {
+    this.hostedApp = getGlobal().hostedApp
+
     this.cognitoUser = undefined
     this.signUpUserOnConfirm = false
-    this.hostedApp = getGlobal().hostedApp
     this.keyId1 = undefined
     this.keyId2 = undefined
 
     this.appId = anAppId
     this.appIsSimpleId = (this.appId === SID_ANALYTICS_APP_ID )
 
-    // Probably want to move this into this.persist below:
-    this.userUuid = undefined
-
     this.persist = {
+      userUuid: undefined,
       email: undefined,
       address: undefined,
       secretCipherText1: undefined,
       secretCipherText2: undefined,
     }
 
-    console.log('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
-    console.log('DBG: attempting to fetch data from local storage')
+    this.neverPersist = {
+      wallet: undefined,
+      priKey: undefined
+    }
+
+
     try {
       // TODO: de-obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
       const stringifiedData = localStorage.getItem(SID_SVCS_LS_KEY)
-      console.log(`DBG: recovered persistent data from local storage.\n${stringifiedData}`)
       const persistedData = jsonParseToBuffer(stringifiedData)
       if (persistedData.hasOwnProperty('email') &&
           persistedData.hasOwnProperty('address') &&
           persistedData.email && persistedData.address) {
-        console.log(`DBG: successfully recovered and inflated persisted data.`)
         this.persist = persistedData
       }
     } catch (suppressedError) {
-      console.log(`DBG: error recovering persistent data from local storage.\n${suppressedError}`)
-    }
-
-    this.neverPersist = {
-      wallet: undefined,
-      priKey: undefined
+      console.log(`WARN: problem recovering persistent data from local storage.\n${suppressedError}`)
     }
   }
 
@@ -192,30 +164,32 @@ export class SidServices
     // If the wallet is undefined, then the iframe has been collapsed and removed
     // from memory. Need to re-compose the user's secrets after decrypting them first
     // (assumes tokens still valid--if not will need sign in with MFA):
-    if (!this.neverPersist.wallet &&
-         this.persist.secretCipherText1 &&
-         this.persist.secretCipherText2) {
-      // CopyPasta from 2nd half of sign-in
-      // TODO: clean up
+    if (!this.neverPersist.wallet) {
+      if ( this.persist.secretCipherText1 && this.persist.secretCipherText2) {
+        // CopyPasta from 2nd half of sign-in
+        // TODO: clean up
 
-      // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
-      // TODO: -should these be Buffer.from()?
-      const secretPlainText1 =
-        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
-      const secretPlainText2 =
-        await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
+        // 2. Decrypt the secrets on the appropriate HSM KMS CMKs
+        // TODO: -should these be Buffer.from()?
+        const secretPlainText1 =
+          await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText1)
+        const secretPlainText2 =
+          await this.decryptWithKmsUsingIdpCredentials(this.persist.secretCipherText2)
 
-      // 3. Merge the secrets to recover the keychain
-      const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
+        // 3. Merge the secrets to recover the keychain
+        const secretMnemonic = SSS.combine([secretPlainText1, secretPlainText2])
 
-      // 4. Inflate the wallet and persist it to state.
-      const mnemonicStr = secretMnemonic.toString()
-      this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
+        // 4. Inflate the wallet and persist it to state.
+        const mnemonicStr = secretMnemonic.toString()
+        this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
 
-      // Sanity check
-      if (this.persist.address !== this.neverPersist.wallet.address) {
-        // eslint-disable-next-line
-        throw `ERR: wallet addresses not equal. Persisted ${this.persist.address} vs. recovered ${this.neverPersist.wallet.address}`
+        // Sanity check
+        if (this.persist.address !== this.neverPersist.wallet.address) {
+          // eslint-disable-next-line
+          throw `ERR: wallet addresses not equal. Persisted ${this.persist.address} vs. recovered ${this.neverPersist.wallet.address}`
+        }
+      } else {
+        // TODO: need to fetch persisted data from dynamo to re-inflate
       }
     }
 
@@ -269,11 +243,9 @@ export class SidServices
   *
   */
   signInOrUp = async (anEmail, anAppId) => {
-    // If the user is already authenticated, then skip this function.
     const authenticated = await this.isAuthenticated(anEmail)
     if (authenticated) {
-      // TODO: Might need to handle the UI (i.e. waiting on challenge is not
-      //       needed if we're returning here.)
+      // If the user is already authenticated, then skip this function.
       return 'already-logged-in'
     }
 
@@ -299,7 +271,7 @@ export class SidServices
 
       const params = {
         username: anEmail,
-        password: SidServices._getRandomString(30),
+        password: getRandomString(30),
         attributes: keyAssignments
       }
       await Auth.signUp(params)
@@ -320,16 +292,11 @@ export class SidServices
   /**
    * signOut:
    *
-   * TODO:
-   *        1. What is the best thing to do here?
-   *             - clobber the token and sign out?
-   *             - block specific calling appId?
    */
   signOut = async () => {
-    const hostedApp = this.hostedApp
-    //For now, if the user is on the hosted wallet page and not in a third parth app
-    //We'll clear localStorage and refresh
-    if(hostedApp) {
+    if (this.hostedApp) {
+      // For now, if the user is on the hosted wallet page and not in a third parth app
+      // We'll clear localStorage and refresh
       localStorage.clear();
       window.location.reload();
     } else {
@@ -375,15 +342,11 @@ export class SidServices
    *
    */
   answerCustomChallenge = async (anAnswer) => {
-    let signUpMnemonicReveal;
-    const hostedApp = this.hostedApp
-    try {
-      this.cognitoUser =
-        await Auth.sendCustomChallengeAnswer(this.cognitoUser, anAnswer)
-    } catch (error) {
-      console.log("CUSTOM CHALLENGE ERROR: ", error)
-      throw error
-    }
+    let signUpMnemonicReveal = false
+
+    // Following line throws and is intentionally unhandled.
+    this.cognitoUser = await Auth.sendCustomChallengeAnswer(
+      this.cognitoUser, anAnswer)
 
     // The user has entered a challenge answer and no error occured. Now test
     // to see if they are authenticated into Cognito (i.e. have a valid token):
@@ -395,7 +358,7 @@ export class SidServices
       try {
         //  0. Generate uuid
         //
-        this.userUuid = uuidv4()
+        this.persist.userUuid = uuidv4()
 
         //  1. Generate keychain
         //
@@ -442,15 +405,16 @@ export class SidServices
 
         //  4. b) Create and store User Data (simple_id_auth_user_data_v001)
         //
+        //  IMPORTANT: Never put wallet address in user data (the whole point
+        //             is to decouple the two with a cryptographic island).
         const userDataRow = {
           // sub: <cognito idp sub>  is implicitly added to this in call to tablePutWithIdpCredentials below.
-          uuid: this.userUuid,
+          uuid: this.persist.userUuid,
           email: this.persist.email,
           secretCipherText1: this.persist.secretCipherText1,
           secretCipherText2: this.persist.secretCipherText2,
           apps: {},
           sid: sidObj,
-          address: this.persist.address,
         }
         userDataRow.apps[this.appId] = {}   // Empty Contact Prefs Etc.
 
@@ -460,42 +424,26 @@ export class SidServices
         //  4. c)  Create and store entry in Wallet to UUID map for this app
         //         (simple_id_wallet_uuid_map_v001)
         //
-        // TODO: Fetch the public key for the row corresponding to this app_id
-        //       from the simple_id_cust_analytics_data_v001 table and use it
-        //       to asymmetricly encrypt the user uuid. For now we just pop in
-        //       the plain text uuid.
-        let appPublicKey = await walletAnalyticsDataTableGetAppPublicKey(this.appId)
-
-        console.log('appPublicKey:')
-        console.log('---------------------------------------------------------')
-        console.log(`type:  ${typeof appPublicKey}`)
-        console.log(`straight output:`)
-        console.log(appPublicKey)
-        console.log(`stringified:`)
-        console.log(JSON.stringify(appPublicKey))
-
-        console.log('Before encrypt:')
-        const userUuidCipherText = (appPublicKey !== "TODO") ?
-          await eccrypto.encrypt(appPublicKey, Buffer.from(this.userUuid)) :
-           `TODO: enc ${this.userUuid} for appId ${this.appId}`
-        console.log('After Encrypt:')
+        const appPublicKey =
+          await walletAnalyticsDataTableGetAppPublicKey(this.appId)
+        const userUuidCipherText =
+          await eccrypto.encrypt(appPublicKey, Buffer.from(this.persist.userUuid))
         const walletUuidMapRow = {
           wallet_address: this.persist.address,
-          app_to_enc_uuid_map: {}
+          app_to_enc_uuid_map: {
+            [ this.appId ] : userUuidCipherText
+          }
         }
-        walletUuidMapRow.app_to_enc_uuid_map[this.appId] = userUuidCipherText
         //
         // TODO: Make this use Cognito to get write permission to the DB (for the
         //       time being we're using an AWS_SECRET):
-        // TODO: Make this update / append when needed too (here it's new data so it's okay)
         await walletToUuidMapTablePut(walletUuidMapRow)
 
         //  4. d)  Create and store Wallet Analytics Data
         //         (simple_id_cust_analytics_data_v001)
         //
-
-        //TODO: Review this with AC
-
+        // TODO (Justin+AC): Events of some sort (i.e. sign-in, sign-up, date etc.)
+        //
         await walletAnalyticsDataTableAddWalletForAnalytics(
           this.persist.address, this.appId)
 
@@ -505,12 +453,6 @@ export class SidServices
         //   we want to do.
         //   see line 609 for how this will be returned
         signUpMnemonicReveal = true;
-
-        console.log('DBG: DELETE this comment after debugging / system ready')
-        console.log('*******************************************************')
-        console.log('Eth Wallet:')
-        console.log(this.neverPersist.wallet)
-        console.log('*******************************************************')
       } catch (error) {
         throw Error(`ERROR: signing up user after successfully answering customer challenge failed.\n${error}`)
       } finally {
@@ -531,7 +473,6 @@ export class SidServices
       //
       const userDataDbRow = await this.tableGetWithIdpCredentials()
       const userData = userDataDbRow.Item
-      console.log("USER DATA FROM EXISTING USER: ", userData);
       this.persist.secretCipherText1 = userData.secretCipherText1
       this.persist.secretCipherText2 = userData.secretCipherText2
 
@@ -552,16 +493,19 @@ export class SidServices
       this.neverPersist.wallet = new ethers.Wallet.fromMnemonic(mnemonicStr)
       this.persist.address = this.neverPersist.wallet.address
 
-      this.userUuid = userData.uuid
+      this.persist.userUuid = userData.uuid
 
       // 5. If the user has never signed into this App before, we need to update
       //    the appropriate tables with the user's data unless this is happening on the hosted-wallet side of things:
       //
-      if(hostedApp !== true) {
+      if (this.hostedApp !== true) {
 
         /* REMOVE Test code when working ****************************************/
         const oldAppId = this.appId
         if (TEST_SIGN_USER_UP_TO_NEW_APP) {
+          console.log('************************ REMOVE WHEN WORKING ***************')
+          console.log('* Faking a new AppId to build signUserUpToNewApp           *')
+          console.log('************************************************************')
           this.appId = `new-app-id-random-authd-${Date.now()}`
         }
         // See also: BEGIN REMOVE ~10 lines down
@@ -569,16 +513,14 @@ export class SidServices
 
         let userDataDbNeedsUpdate = false
         if (!userData.apps.hasOwnProperty(this.appId)) {
-          console.log('First time logging into this app, updating associate DBs')
-          userData.apps[this.appId] = {}
           userDataDbNeedsUpdate = true
+
+          userData.apps[this.appId] = {}
 
           if (this.appIsSimpleId) {
             const sidObj = await this.createSidObject()
             userData.sid = sidObj
-
-            this.persist['sid'] = sidObj
-            userDataDbNeedsUpdate = true
+            this.persist.sid = sidObj
           } else {
             this.persist.sid = userData && userData.sid ? userData.sid : undefined;
           }
@@ -599,13 +541,6 @@ export class SidServices
           await this.tablePutWithIdpCredentials( userData )
           userDataDbNeedsUpdate = false
         }
-
-        // TODO: Justin solution to persist (local storage in encrypted state so
-        //       no need to hit AWS (faster, cheaper))
-        console.log('DBG: DELETE this comment after debugging / system ready')
-        console.log('*******************************************************')
-        console.log('Eth Wallet:')
-        console.log(this.neverPersist.wallet)
       }
     }
 
@@ -613,15 +548,14 @@ export class SidServices
       try {
         // TODO: obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
         localStorage.setItem(SID_SVCS_LS_KEY, JSON.stringify(this.persist))
-      } catch (error) {
-        console.log('ERROR persisting SID services data to local store.')
+      } catch (suppressedError) {
+        console.log(`ERROR persisting SID services data to local store.\n${suppressedError}`)
       }
     }
 
     // moving the authenticated = true into an object so that we include signUpMnemonicReveal
     // this needs to be sent so that in postMessage.js we know if we need to update state accordingly
-    const results = { authenticated, signUpMnemonicReveal }
-    return results;
+    return { authenticated, signUpMnemonicReveal }
   }
 
   isAuthenticated = async (anEmail=undefined) => {
@@ -653,9 +587,9 @@ export class SidServices
   }
 
   getKeyAssignmentFromTokenAttr = async () => {
-    console.log('getKeyAssignmentFromTokenAttr:')
-    console.log('- - - - - - - - - - - - - - - - ')
     const userAttributes = await this.getUserDetails()
+
+    // TODO: Clean this up (i.e. see if we can do direct assignment instead of a loop)
     const keyAssignments = {}
     for (const userAttribute of userAttributes) {
       if (userAttribute.getName() === 'custom:kfa1') {
@@ -666,6 +600,7 @@ export class SidServices
         keyAssignments['kfa2'] = userAttribute.getValue()
       }
     }
+
     return keyAssignments
   }
 
@@ -725,7 +660,7 @@ export class SidServices
       cryptography: {
         pub_key: orgPubKey,
         pri_key_ciphertexts: {
-          [aUserUuid] : priKeyCipherText,
+          [ aUserUuid ] : priKeyCipherText,
         }
       },
       owner: {
@@ -755,7 +690,7 @@ export class SidServices
     const priKeyCipherText =
       await this.encryptWithKmsUsingIdpCredentials(this.keyId1, priKey)
 
-    const orgId = await this.createOrganizationId(this.userUuid, pubKey, priKey)
+    const orgId = await this.createOrganizationId(this.persist.userUuid, pubKey, priKey)
 
     let sidObj = {
       org_id: orgId,
@@ -763,7 +698,7 @@ export class SidServices
       pri_key_cipher_text: priKeyCipherText,
     }
 
-    this.persist['sid'] = sidObj
+    this.persist.sid = sidObj
     this.neverPersist.priKey = priKey
 
     return sidObj
@@ -793,9 +728,9 @@ export class SidServices
     let orgData = undefined
     try {
       // TODO: See TODO.3 above!
-      const data = await organizationDataTableGet(anOrgId)
-      data.Item.apps[appId] = anAppObject
-      await organizationDataTablePut(data.Item)
+      orgData = await organizationDataTableGet(anOrgId)
+      orgData.Item.apps[appId] = anAppObject
+      await organizationDataTablePut(orgData.Item)
     } catch (error) {
       throw new Error(`ERROR: Failed to update apps in Organization Data table.\n${error}`)
     }
@@ -805,10 +740,9 @@ export class SidServices
     let publicKey = undefined
     try {
       publicKey = orgData.Item.cryptography.pub_key
-    } catch (suppressedError) {
-      console.log(`WARN: Failed to fetch public key from Org Data.\n${suppressedError}`)
+    } catch (error) {
+      throw new Error(`Error: Failed to fetch public key from Org Data.\n${error}`)
     }
-    console.log(`DBG: 1.5 Get the public key:  ${publicKey}`)
 
     // 2. Update the Wallet Analytics Data table
     //
@@ -820,14 +754,14 @@ export class SidServices
         analytics: {}
       }
       await walletAnalyticsDataTablePut(walletAnalyticsRowObj)
-      console.log(`DBG: 2.0 Update the Wallet Analytics Data Table:\n${JSON.stringify(walletAnalyticsRowObj, 0, 2)}`)
-      return appId
     } catch (error) {
       throw new Error(`ERROR: Failed to add row Wallet Analytics Data table.\n${error}`)
     }
 
     // 3. TODO: Update the user data using Cognito IDP (the 'sid' property)
     //
+
+    return appId
   }
 
   /**
@@ -841,7 +775,7 @@ export class SidServices
    *         Unauthenticated UUID table, or the Wallet to UUID Map table.
    */
   deleteAppId = async() => {
-    // TODO
+    // TODO deleteAppId
   }
 
   /**
@@ -863,16 +797,14 @@ export class SidServices
    */
   signUserUpToNewApp = async(isAuthenticatedUser) => {
     const hostedApp = this.hostedApp
-    console.log(`DBG: signUserUpToNewApp`)
-    console.log('-------------------------------------------------------------')
-    console.log(`  isAuthenticatedUser: ${isAuthenticatedUser}`)
-    console.log(`  this.appId: ${this.appId}`)
-    console.log(`  this.userUuid: ${this.userUuid}`)
-    console.log(`  address: ${this.persist.address}`)
+
     //We should only be doing this if the request is coming from a regular app.
     //If the request is coming from wallet.simpleid.xyz, the experience needs to be
     //different.
-    if(hostedApp !== true) {
+    if(hostedApp === true) {
+      return
+    }
+
     if (isAuthenticatedUser) {
       // 1.a) Update the User Data Table if the user is authenticated.
       //
@@ -883,26 +815,23 @@ export class SidServices
       // 1.b) Otherwise update the Unauthenticated UUID Table if the user is an
       //      unauthenticated user.
       //
-      console.log(`DBG: Appending ${this.appId} to ${this.userUuid}`)
-      await unauthenticatedUuidTableAppendAppId(this.userUuid, this.appId)
+      await unauthenticatedUuidTableAppendAppId(this.persist.userUuid, this.appId)
     }
 
     // 2. Update the Wallet Analytics Data table:
     //
-    // TODO:
-    console.log(`DBG: signUserUpToNewApp calling walletAnalyticsDataTableAddWalletForAnalytics`)
-    await walletAnalyticsDataTableAddWalletForAnalytics(
-      this.persist.address, this.appId)
+    await walletAnalyticsDataTableAddWalletForAnalytics(this.persist.address, this.appId)
+
     // 3. Update the Wallet to UUID Map table:
     //
     // TODO: need to encrypt the uuid with the app devs PK
     //
-    const plainTextUuid = this.userUuid   // TODO: Encrypt!!!
-    console.log(`DBG: signUserUpToNewApp calling walletToUuidMapTableAddCipherTextUuidForAppId`)
-    console.log(`     (${this.persist.address}, ${plainTextUuid}, ${this.appId})`)
+    const appPublicKey = await walletAnalyticsDataTableGetAppPublicKey(this.appId)
+    const userUuidCipherText =
+      await eccrypto.encrypt(appPublicKey, Buffer.from(this.persist.userUuid))
+
     await walletToUuidMapTableAddCipherTextUuidForAppId(
-      this.persist.address, plainTextUuid, this.appId)
-    }
+      this.persist.address, userUuidCipherText, this.appId)
   }
 
 /******************************************************************************
@@ -917,8 +846,6 @@ export class SidServices
      return
    }
 
-   console.log("NON SID USER INFO: ", userInfo);
-
    const { email, address } = userInfo
    this.persist.email = email
    this.persist.address = address
@@ -926,16 +853,12 @@ export class SidServices
    // Check to see if this user exists in Unauthenticated UUID table (email key
    // is also indexed):
    const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
-   let userExists = false
-   if (uuidResults.Items.length === 1) {
-     userExists = true
-   } else if (uuidResults.Items.length !== 0) {
+   const userExists = (uuidResults.Items.length === 1)
+   if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {
      throw new Error('ERROR: collision with user in Simple ID unauth\'d user table.')
    }
 
    if (!userExists) {
-     // TODO Refactor to createUnauthenticatedUser
-     //
      // The unauthenticated user does not exist in our data model. Initialize and
      // create DB entries for them:
      //
@@ -944,22 +867,19 @@ export class SidServices
      //
      // TODO:
      //       - think about obfusicating the email due to the openness of this table.
+     //       - Refactor to createUnauthenticatedUser
      //
-     this.userUuid = uuidv4()
+     this.persist.userUuid = uuidv4()
      const unauthenticatedUuidRowObj = {
-       uuid: this.userUuid,
+       uuid: this.persist.userUuid,
        email,
        apps: [ this.appId ]
      }
-     console.log('trying to put unauthenticatedUuidRowObj')
-     console.log(unauthenticatedUuidRowObj)
      await unauthenticatedUuidTablePut(unauthenticatedUuidRowObj)
-     console.log('success')
 
      // 2. Create an entry for them in the Wallet Analytics Data Table
      //
-     await walletAnalyticsDataTableAddWalletForAnalytics(
-       this.persist.address, this.appId)
+     await walletAnalyticsDataTableAddWalletForAnalytics(this.persist.address, this.appId)
 
      // 3. Create an entry for them in the Wallet to UUID Map
      //
@@ -968,49 +888,43 @@ export class SidServices
      //       to asymmetricly encrypt the user uuid. For now we just pop in
      //       the plain text uuid.
      //
-     const plainTextUuid = this.userUuid
+     const appPublicKey = await walletAnalyticsDataTableGetAppPublicKey(this.appId)
+     const userUuidCipherText = await eccrypto.encrypt(
+       appPublicKey, Buffer.from(this.persist.userUuid))
+
      const walletUuidMapRowObj = {
        wallet_address: address,
-       app_to_enc_uuid_map: {}
+       app_to_enc_uuid_map: {
+         [ this.appId ] : userUuidCipherText
+       }
      }
      //
      // TODO: Make this use Cognito to get write permission to the DB (for the
      //       time being we're using an AWS_SECRET):
      // TODO: Make this update / append when needed too (here it's new data so it's okay)
-     walletUuidMapRowObj.app_to_enc_uuid_map[this.appId] = plainTextUuid    // TODO Enc this!
-     console.log('trying to put walletUuidMapRowObj')
-     console.log(walletUuidMapRowObj)
      await walletToUuidMapTablePut(walletUuidMapRowObj)
-     console.log('success')
    } else {
      // TODO Refactor to persistUnauthenticatedUser
      //
-     this.userUuid = uuidResults.Items[0].uuid
-     console.log('DBG: USER EXISTS, uuid = ')
-     console.log(this.userUuid)
+     this.persist.userUuid = uuidResults.Items[0].uuid
 
      // 1. Fetch the email & apps from the Unauthenticated UUID table and ensure
      //    this app is listed.
      //
-     const unauthdUuidRowObj =
-       await unauthenticatedUuidTableGetByUuid(this.userUuid)
-
-     console.log('Fetched unauthdUuidRowObj:')
-     console.log(JSON.stringify(unauthdUuidRowObj))
+     const unauthdUuidRowObj = await unauthenticatedUuidTableGetByUuid(this.persist.userUuid)
 
      // BEGIN REMOVE
-     console.log('************************ REMOVE WHEN WORKING ***************')
-     console.log('* Faking a new AppId to build signUserUpToNewApp           *')
-     console.log('************************************************************')
      const oldAppId = this.appId
      if (TEST_SIGN_USER_UP_TO_NEW_APP) {
+       console.log('************************ REMOVE WHEN WORKING ***************')
+       console.log('* Faking a new AppId to build signUserUpToNewApp           *')
+       console.log('************************************************************')
        this.appId = `new-app-id-random-${Date.now()}`
      }
      // See also: BEGIN REMOVE ~10 lines down
      // END REMOVE
 
      if ( !unauthdUuidRowObj.Item.apps.includes(this.appId) ) {
-       console.log('New App ID detected, must add this app to tables ....')
        // The App doesn't exist in the user's profile (this is the first time
        // the user is using it). Update the Unauthenticated UUID table,
        // Wallet Analytics Data table, and Wallet to UUID tables.
@@ -1022,7 +936,6 @@ export class SidServices
      // restore appId
      this.appId = oldAppId
      // END REMOVE
-
    }
 
    // TODO: this needs to be obfuscated. It should also use a common method with
@@ -1054,16 +967,9 @@ export class SidServices
       aUserPoolId:string=process.env.REACT_APP_USER_POOL_ID,
       anIdentityPoolId:string=process.env.REACT_APP_IDENTITY_POOL_ID ) => {
 
-    let session = undefined
-    try {
-      session = await Auth.currentSession()
-    } catch (error) {
-      console.log(`ERROR: unable to get current session.\n${error}`)
-      throw error
-    }
+    const session = await Auth.currentSession()
 
     AWS.config.region = aRegion
-
     const data = { UserPoolId: aUserPoolId }
     const cognitoLogin = `cognito-idp.${AWS.config.region}.amazonaws.com/${data.UserPoolId}`
     const logins = {}
@@ -1074,15 +980,10 @@ export class SidServices
       Logins: logins
     })
 
-    try {
-      // Modified to use getPromise from:
-      //    https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Credentials.html#get-property
-      //
-      await AWS.config.credentials.getPromise()
-    } catch (error) {
-      console.log(`ERROR: getting / refreshing the existing credentials.\n${error}`)
-      throw error
-    }
+    // Modified to use getPromise from:
+    //    https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Credentials.html#get-property
+    //
+    await AWS.config.credentials.getPromise()
   }
 
 
@@ -1099,37 +1000,28 @@ export class SidServices
     // Now that the AWS creds are configured with the cognito login above, we
     // should be able to access the KMS key if we got the IAMs users/roles/grants
     // correct.
-    const kms = new AWS.KMS( {region:'us-west-2'} )
+    const kms = new AWS.KMS( { region : process.env.REACT_APP_REGION } )
 
-    let cipherText = undefined
-    try {
-      cipherText = await new Promise((resolve, reject) => {
-        const params = {
-          KeyId: keyId,
-          Plaintext: plainText
+    const cipherText = await new Promise((resolve, reject) => {
+      const params = {
+        KeyId: keyId,
+        Plaintext: plainText
+      }
+
+      kms.encrypt(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve(data.CiphertextBlob)
         }
-        kms.encrypt(params, (err, data) => {
-          if (err) {
-            reject(err)
-          } else {
-            resolve(data.CiphertextBlob)
-          }
-        })
       })
-      console.log('DBG: Encryption with Idp Credentials succeeded.')
-      console.log(cipherText)
-    } catch (error) {
-      console.log(`ERROR: Unable to encrypt plainText with Idp Credentials.\n${error}`)
-    }
+    })
 
     return cipherText
   }
 
 
   decryptWithKmsUsingIdpCredentials = async (cipherText) => {
-    console.log('decryptWithKmsUsingIdpCredentials')
-    console.log('-------------------------------------------------------------')
-
     await this.requestIdpCredentials()
 
     // Now that the AWS creds are configured with the cognito login above, we
@@ -1137,28 +1029,22 @@ export class SidServices
     // correct.
     const kms = new AWS.KMS( {region:'us-west-2'} )
 
-    let plainText = undefined
-    try {
-      plainText = await new Promise((resolve, reject) => {
-        const params = {
-          // KeyId: <Not needed--built into cipher text>,
-          CiphertextBlob: cipherText
+    const plainText = await new Promise((resolve, reject) => {
+      const params = {
+        // KeyId: <Not needed--built into cipher text>,
+        CiphertextBlob: cipherText
+      }
+
+      kms.decrypt(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          // TODO: probably stop string encoding this
+          // resolve(data.Plaintext.toString('utf-8'))
+          resolve(data.Plaintext)
         }
-        kms.decrypt(params, (err, data) => {
-          if (err) {
-            reject(err)
-          } else {
-            // TODO: probably stop string encoding this
-            // resolve(data.Plaintext.toString('utf-8'))
-            resolve(data.Plaintext)
-          }
-        })
       })
-      console.log('Decryption using Cognito credentials succeeded.')
-      console.log(plainText)
-    } catch (error) {
-      console.log(`ERROR: Unable to decrypt encrypted plainText using Cognito credentials.\n${error}`)
-    }
+    })
 
     return plainText
   }
@@ -1178,130 +1064,83 @@ export class SidServices
   // TODO: abstract the restricted sub out of this code so it's more generic and
   //       not just for restricted row access dynamos.
   tableGetWithIdpCredentials = async () => {
-    console.log('tableGetWithIdpCredentials')
-    console.log('-------------------------------------------------------------')
-
     await this.requestIdpCredentials()
 
-    let id = undefined
+    let sub = undefined
     try {
-      id = AWS.config.credentials.identityId
-      console.log(`Cognito Identity ID: ${id}`)
+      sub = AWS.config.credentials.identityId
     } catch (error) {
-      throw Error(`ERROR: getting credential id.\n${error}`)
+      throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
 
-    let docClient = undefined
-    try {
-      docClient =
-        new AWS.DynamoDB.DocumentClient({ region: process.env.REACT_APP_REGION })
+    const docClient = new AWS.DynamoDB.DocumentClient({
+      region: process.env.REACT_APP_REGION })
 
-      const dbParams = {
-        Key: {
-          sub: id
-        },
-        TableName: process.env.REACT_APP_UD_TABLE,
+    const dbParams = {
+      Key: {
+        sub: sub
+      },
+      TableName: process.env.REACT_APP_UD_TABLE,
+    }
+
+    const awsDynDbRequest = await new Promise(
+      (resolve, reject) => {
+        docClient.get(dbParams, (err, data) => {
+          if (err) {
+            reject(err)
+          } else {
+            resolve(data)
+          }
+        })
       }
+    )
 
-      const awsDynDbRequest = await new Promise(
-        (resolve, reject) => {
-          docClient.get(dbParams, (err, data) => {
-            if (err) {
-              reject(err)
-            } else {
-              resolve(data)
-            }
-          })
-        }
-      )
-
-      console.log('Successfully read from dynamo db, result =')
-      console.log(awsDynDbRequest)
-      return awsDynDbRequest
-    } catch (error) {
-      console.log(`ERROR: configuring and writing to Dynamo.\n${error}`)
-    }
+    return awsDynDbRequest
   }
 
-  tablePutWithIdpCredentials = async (kvData) => {
+  tablePutWithIdpCredentials = async (keyValueData) => {
     // Adapted from the JS on:
     //    https://aws.amazon.com/blogs/mobile/building-fine-grained-authorization-using-amazon-cognito-user-pools-groups/
     //
-    console.log('tablePutWithIdpCredentials')
-    console.log('-------------------------------------------------------------')
-
     await this.requestIdpCredentials()
 
     // Modified to use getPromise from:
     //    https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Credentials.html#get-property
     //
-    let id = undefined
+    let sub = undefined
     try {
-      id = AWS.config.credentials.identityId
-      console.log(`Cognito Identity ID: ${id}`)
+      sub = AWS.config.credentials.identityId
     } catch (error) {
-      throw Error(`ERROR: getting credential id.\n${error}`)
+      throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
 
-    let docClient = undefined
-    try {
-      docClient =
-        new AWS.DynamoDB.DocumentClient({ region: process.env.REACT_APP_REGION })
+    const docClient = new AWS.DynamoDB.DocumentClient(
+      { region: process.env.REACT_APP_REGION })
 
-      const d = new Date(Date.now());
-      const item = {
-        'sub': `${id}`,
-        'last_access': d.toUTCString()
-      }
-      for (const k in kvData) {
-        item[k] = kvData[k]
-      }
-
-      const dbParams = {
-        Item: item,
-        TableName: process.env.REACT_APP_UD_TABLE,
-      }
-
-      const awsDynDbRequest = await new Promise(
-        (resolve, reject) => {
-          docClient.put(dbParams, (err, data) => {
-            if (err) {
-              reject(err)
-            } else {
-              resolve(data)
-            }
-          })
-        }
-      )
-
-      console.log('Successfully wrote to dynamo db, result =')
-      console.log(awsDynDbRequest)
-    } catch (error) {
-      console.log(`ERROR: configuring and writing to Dynamo.\n${error}`)
+    const item = {
+      sub: sub
     }
-  }
-
-  tableUpdateWithIdpCredentials = async () => {
-    // TODO: a fast efficient update of a dynamo table auth'd with IDP creds.
-  }
-
-
-  //
-  // Private Methods
-  //////////////////////////////////////////////////////////////////////////////
-
-  static _getRandomString(numBytes) {
-    const randomValues = new Uint8Array(numBytes)
-    // TODO: any environments where window will not be available?
-    if (!window) {
-      throw Error(`ERROR: SID Services unable to access window.`)
+    for (const k in keyValueData) {
+      item[k] = keyValueData[k]
     }
-    window.crypto.getRandomValues(randomValues)
-    return Array.from(randomValues).map(SidServices._intToHex).join('');
-  }
 
-  static _intToHex(aNumber) {
-    return aNumber.toString(16).padStart(2, '0');
-  }
+    const dbParams = {
+      Item: item,
+      TableName: process.env.REACT_APP_UD_TABLE,
+    }
 
+    const awsDynDbRequest = await new Promise(
+      (resolve, reject) => {
+        docClient.put(dbParams, (err, data) => {
+          if (err) {
+            reject(err)
+          } else {
+            resolve(data)
+          }
+        })
+      }
+    )
+
+    return awsDynDbRequest
+  }
 }
