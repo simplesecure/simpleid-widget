@@ -79,23 +79,30 @@ export async function handleData(dataToProcess) {
       
       //Now with the org_id, we can fetch the notification info from the org_table
       const orgData = await organizationDataTableGet(org_id);
+      console.log(orgData)
       if(orgData.Item) {
         const thisApp = orgData.Item.apps[appId]
-        const { currentSegments, notifications } = thisApp;
-        let notificationsToReturn = []
-        //Check to see if there are any notifications for this app
-        if(notifications.length > 0) {
-          for(const notification of notifications) {
-            //Check the segment for the logged in user
-            const thisSegment = currentSegments.filter(a => a.id === notification.segmentId)[0]
-            const users = thisSegment.users;
-            const thisUser = users.filter(a => a === address)[0];
-            console.log("THIS USER FOUND", thisUser);
-            notificationsToReturn.push(notification);
+        if(thisApp) {
+          const { currentSegments, notifications } = thisApp;
+          let notificationsToReturn = []
+          //Check to see if there are any notifications for this app
+          if(notifications.length > 0) {
+            for(const notification of notifications) {
+              //Check the segment for the logged in user
+              const thisSegment = currentSegments.filter(a => a.id === notification.segmentId)[0]
+              const users = thisSegment.users;
+              const thisUser = users.filter(a => a === address)[0];
+              console.log("THIS USER FOUND", thisUser);
+              notification['org_id'] = org_id
+              notificationsToReturn.push(notification);
+            }
+            results = notificationsToReturn;
+          } else {
+            results = "No available notifications"
           }
-          results = notificationsToReturn;
         } else {
-          results = "No available notifications"
+          //TODO: The engagement app doesn't have any apps nested under it. We need to fix this
+          //I think it's tied to the app ID we're using
         }
       } else {
         return "Error fetching org data"
