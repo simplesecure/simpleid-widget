@@ -1,6 +1,7 @@
 import { getGlobal } from 'reactn';
 import { closeWidget } from './postMessage';
 import { walletAnalyticsDataTableGet } from '../utils/dynamoConveniences';
+import { getSidSvcs } from '../index';
 const rp = require('request-promise');
 const ethers = require('ethers');
 const ALETHIO_KEY = process.env.REACT_APP_ALETHIO_KEY;
@@ -10,6 +11,7 @@ let addresses = [];
 
 export async function handleData(dataToProcess) {
   const { data, type } = dataToProcess;
+  console.log(dataToProcess);
   if(type === 'segment') {
     let results;
     //Need to fetch user list that matches segment criteria
@@ -49,6 +51,19 @@ export async function handleData(dataToProcess) {
   } else if(type === 'email messaging') {
     //Here we will do something similar to segment data except we will send the appropriate message
     //Data should include the email template to use
+  } else if(type === 'ping') {
+    console.log("let's ping this bad boy")
+    console.log(data);
+  } else if(type === 'notifications') {
+    console.log("TIME TO FETCH THE NOTIFICATIONS")
+    console.log(data)
+    let results = "nada";
+    return results;
+  } else if(type === 'create-project') {
+    const { appObject, orgId } = data;
+    const createProject = await getSidSvcs().createAppId(orgId, appObject)
+    console.log(createProject)
+    return createProject
   }
   closeWidget();
 }

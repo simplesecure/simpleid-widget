@@ -41,7 +41,26 @@ connection.promise.then(parent => {
         if(data) {
           const dataToReturn = await handleData(data);
           parent.returnProcessedData(dataToReturn);
-          parent.close();
+          //TODO: Fix this. Hacky solution to keep the iframe open if the data to be processed is segment data
+          //If we aren't persisting the iframe, it doesn't get closed in time for the next request
+          //And if it's not closed in time, the next request gets cut off when the iframe does come in
+          //Here's what it looks like
+          //1. Segment Data to be processed comes in
+          //2. Data is processed
+          //3. Data is returned
+          //4. Close widget function called
+          //5. Next piece of Segment Data to be processed comes in
+          //6. Iframe finally closes
+          //7. Segment Data to be processed is lost
+
+          //This is a temporary solution
+          if(data.type === 'segment') {
+            return
+          } else {
+            parent.close();
+            return;
+          }
+          
         }
       })
     } else if(action === 'hosted-app') {
