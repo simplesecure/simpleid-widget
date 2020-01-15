@@ -76,7 +76,7 @@ export async function handleData(dataToProcess) {
     const appData = await walletAnalyticsDataTableGet(appId);
     if(appData.Item) {
       const org_id = appData.Item.org_id
-      
+
       //Now with the org_id, we can fetch the notification info from the org_table
       const orgData = await organizationDataTableGet(org_id);
       console.log(orgData)
@@ -107,7 +107,7 @@ export async function handleData(dataToProcess) {
       } else {
         return "Error fetching org data"
       }
-    } else { 
+    } else {
       results = "Error fetching app data"
     }
     return results;
@@ -117,7 +117,16 @@ export async function handleData(dataToProcess) {
     console.log(createProject)
     return createProject
   } else if (type === 'AC Terrible Test') {
-    await getSidSvcs().getUuidsForWalletAddresses(data)
+    console.log('AC\'s Terrible Test:')
+    console.log('  getting uuids')
+    const uuids = await getSidSvcs().getUuidsForWalletAddresses(data)
+    console.log('  uuids:')
+    console.log(JSON.stringify(uuids, 0, 2))
+    console.log('  getting emails from uuids')
+    const emails = await getSidSvcs().getEmailsForUuids(uuids)
+    console.log('  emails: ')
+    console.log(JSON.stringify(emails, 0 , 2))
+    console.log('done...')
     return 'Better return something or no tomorrow.'
   }
   closeWidget();

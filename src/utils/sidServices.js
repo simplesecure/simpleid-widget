@@ -12,6 +12,7 @@ import { walletAnalyticsDataTablePut,
          unauthenticatedUuidTableGetByUuid,
          unauthenticatedUuidTablePut,
          unauthenticatedUuidTableAppendAppId,
+         userDataTableGetEmailsFromUuid,       // TODO: get rid of me soon!
          walletToUuidMapTableGetUuids,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableGetAppPublicKey,
@@ -647,7 +648,7 @@ export class SidServices
     const encryptedUuids = []
     //AC Hard-coded version:
     //const encryptedUuidMaps = await walletToUuidMapTableGetUuids(theWalletAddresses)
-    //Justin dynamic version: 
+    //Justin dynamic version:
     const encryptedUuidMaps = await walletToUuidMapTableGetUuids(addresses)
     for (const encryptedUuidMap of encryptedUuidMaps) {
       try {
@@ -680,24 +681,50 @@ export class SidServices
 
     // 3. Decrypt the encrypted uuids and return them:
     //
-    let failedDecryptions = 0
     for (const encryptedUuidCipherText of encryptedUuids) {
       try {
         const uuid = await eccrypto.decrypt(orgEcPriKey, encryptedUuidCipherText)
         uuids.push(uuid.toString())
       } catch (suppressedError) {
-        failedDecryptions++
+        // TODO: some message or analytic to fix / track this
       }
     }
 
-    console.log('uuids:')
-    console.log(uuids)
-    console.log("failed decryptions: ", failedDecryptions)
     return uuids
   }
 
+  /**
+   * getEmailsForUuids
+   *
+   * Notes:
+   *
+   * TODO:
+   *        - Move this to a server / lambda (restrict access to User DB)
+   *        - This is awful. Need to research if we can do a batch get on secondary
+   *          indexes or make a second table mapping uuids to { sub: <sub>, email: <email> }
+   *        - something better for unauthenticated users (probably a combined table)
+   */
   getEmailsForUuids = async(theUuids) => {
+    const emails = []
+    for (const uuid of theUuids) {
+      try {
+        const emailResults = await userDataTableGetEmailsFromUuid(uuid)
+        if (emailResults.Items.length > 0) {
+          let email = emailResults.Items[0].email
+          emails.push(email)
+        } else {
+          // Try the unauthenticated users table since we didn't find the uuid in
+          // the auth'd users table
+          const unauthEmailResults = await unauthenticatedUuidTableGetByUuid(uuid)
+          let email = unauthEmailResults.Item.email
+          emails.push(email)
+        }
+      } catch (suppressedError) {
+        console.log(`WARN: Failed to get email for uuid ${uuid}.\n${suppressedError}`)
+      }
+    }
 
+    return emails
   }
 
 
@@ -944,6 +971,9 @@ export class SidServices
 
    // Check to see if this user exists in Unauthenticated UUID table (email key
    // is also indexed):
+   // console.log('userInfo:')
+   // console.log(JSON.stringify(userInfo, 0, 2))
+   console.log(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
    const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
    const userExists = (uuidResults.Items.length === 1)
    if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {

@@ -6,6 +6,17 @@ import { tableGet,
          tableUpdateListAppend,
          tableUpdateAppendNestedObjectProperty } from './dynamoBasics.js'
 
+// TODO: This func will go away and go into our EC2/Lambda Mail service machine
+//
+export async function userDataTableGetEmailsFromUuid(uuid) {
+  return tableGetBySecondaryIndex(
+    process.env.REACT_APP_UD_TABLE,
+    process.env.REACT_APP_UD_TABLE_INDEX,
+    process.env.REACT_APP_UD_TABLE_SK,
+    uuid
+  )
+}
+
 export async function walletAnalyticsDataTableGet(anAppId) {
   return tableGet(
     process.env.REACT_APP_AD_TABLE,
