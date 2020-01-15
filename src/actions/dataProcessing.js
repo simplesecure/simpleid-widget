@@ -127,9 +127,16 @@ export async function filterByContract(userList, contractAddress) {
   const uri = `${rootUrl}/contracts/${contractAddress}/transactions?page[limit]=100`;
   await fetchFromURL(uri, "contract");
   const uniqueAddresses = [...new Set(addresses)];
-  const resultingAddresses = uniqueAddresses.filter(function(v,i,a){
-    return userList.indexOf(v) > -1;
-  });
+  console.log(uniqueAddresses);
+  console.log(userList)
+  let resultingAddresses = []
+  for(const addr of userList) {
+    const match = uniqueAddresses.indexOf(addr.toLowerCase());
+    console.log(match);
+    if(match > -1) {
+      resultingAddresses.push(uniqueAddresses[match])
+    }
+  }
   return resultingAddresses;
 }
 
@@ -153,8 +160,8 @@ export function fetchFromURL(url, functionType) {
       } else {
         return addresses;
       }
-    } else if(functionType === "some-new-function-type") {
-      console.log(parsedBody);
+    } else {
+      console.log("FROM ALETHIO: ", parsedBody);
     }
   })
   .catch(function (err) {
@@ -165,16 +172,19 @@ export function fetchFromURL(url, functionType) {
 export async function filterByLastSeen(users, data) {
   const { dateRange } = data;
   const datum = Date.parse(dateRange.date);
+  console.log(datum)
   let filteredList = []
 
-  Object.keys(users)
-  .forEach( (key) => {
-    if (dateRange.rangeType === "Before" && users[key].lastSeen && users[key].lastSeen < datum) {
-      filteredList.push(key);
-    } else if(dateRange.rangeType === "After" && users[key].lastSeen && users[key].lastSeen > datum) {
-      filteredList.push(key);
+  console.log("Users: ", users);
+  console.log("Data: ", data)
+  const userKeys = Object.keys(users)
+  for (const userKey of userKeys) {
+    if (dateRange.rangeType === "Before" && parseInt(users[userKey].last_seen, 10) && parseInt(users[userKey].last_seen, 10) < datum) {
+      filteredList.push(userKey);
+    } else if(dateRange.rangeType === "After" && parseInt(users[userKey].last_seen, 10) && parseInt(users[userKey].last_seen, 10) > datum) {
+      filteredList.push(userKey);
     }
-  });
+  }
   return filteredList;
 }
 
@@ -183,25 +193,57 @@ export async function filterByWalletBalance(users, balanceCriteria) {
   const { operatorType, amount } = balanceCriteria;
   const provider = ethers.getDefaultProvider(config.network ? config.network : 'mainnet');
   let filteredUsers = [];
-  console.log(balanceCriteria);
   if(operatorType === "More Than") {
-    for(const user of users) {
-      const balance = await provider.getBalance(user);
-      const etherString = ethers.utils.formatEther(balance);
-      if(parseFloat(etherString) > parseFloat(amount)) {
-        console.log("Yeah Yeah");
-        filteredUsers.push(user);
+    if(balanceCriteria.tokenType === "ERC-20") {
+      for(const user of users) {
+        const url = `https://api.tokenbalance.com/token/${balanceCriteria.tokenAddress}/0xf1363d3d55d9e679cc6aa0a0496fd85bdfcf7464`
+        const balance = await tokenFetch(url)
+        const numberBal = parseFloat(balance)
+        const numberAmount = parseFloat(amount)
+        const matchCriteria = numberBal > numberAmount
+        if(matchCriteria) {
+          filteredUsers.push(user);
+        }
+      }
+    } else {
+      for(const user of users) {
+        const balance = await provider.getBalance(user);
+        const etherString = ethers.utils.formatEther(balance);
+        const numberBal = parseFloat(etherString)
+        const numberAmount = parseFloat(amount)
+        const matchCriteria = numberBal > numberAmount
+        if(matchCriteria) {
+          console.log("Yeah Yeah");
+          filteredUsers.push(user);
+        }
       }
     }
     return filteredUsers;
   } else if(operatorType === "Less Than") {
-    for(const user of users) {
-      const balance = await provider.getBalance(user);
-      const etherString = ethers.utils.formatEther(balance);
-      if(parseFloat(etherString) < parseFloat(amount)) {
-        filteredUsers.push(user);
+    if(balanceCriteria.tokenType === "ERC-20") {
+      for(const user of users) {
+        const url = `https://api.tokenbalance.com/token/${balanceCriteria.tokenAddress}/0xf1363d3d55d9e679cc6aa0a0496fd85bdfcf7464`
+        const balance = await tokenFetch(url)
+        const numberBal = parseFloat(balance)
+        const numberAmount = parseFloat(amount)
+        const matchCriteria = numberBal < numberAmount
+        if(matchCriteria) {
+          filteredUsers.push(user);
+        }
+      }
+    } else {
+      for(const user of users) {
+        const balance = await provider.getBalance(user);
+        const etherString = ethers.utils.formatEther(balance);
+        const numberBal = parseFloat(etherString)
+        const numberAmount = parseFloat(amount)
+        const matchCriteria = numberBal < numberAmount
+        if(matchCriteria) {
+          filteredUsers.push(user);
+        }
       }
     }
+    
     return filteredUsers;
   }
 }
@@ -222,4 +264,27 @@ export async function fetchTotalTransactions(users) {
 export async function walletPDF() {
   document.title = "SimpleID Wallet";
   window.print();
+}
+
+export async function tokenFetch(url) {
+  const options = {
+    method: 'GET',
+    uri: url,
+    headers,
+    json: true
+  }
+  return rp(options)
+  .then(async function (parsedBody) {
+    console.log("Token Balance Api:", parsedBody)
+    if(parsedBody && parsedBody.balance) {
+      return parsedBody.balance
+    } else {
+      return 0
+    }
+    
+    
+  })
+  .catch(function (err) {
+    console.log(err.message);
+  });
 }
