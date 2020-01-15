@@ -66,27 +66,61 @@ export async function tableGet(aTable, aKeyName, aKeyValue) {
 //      Specifically "A single operation can retrieve up to 16 MB of data, which can contain as many as 100 items."
 //    - Add ProjectionExpression to limit data fetched
 export async function tableBatchGet(aTable, anArrOfKeyValuePairs) {
-  var params = {
-    RequestItems: {
-      [ aTable ]: {
-        Keys: anArrOfKeyValuePairs
-      }
+  const numItems = anArrOfKeyValuePairs.length
+  const maxItemsPerIteration = 100
+  const numIterations = Math.ceil(numItems / maxItemsPerIteration)
+
+  let iteration = 1
+  let startIndex = 0
+  let endIndex = maxItemsPerIteration
+
+  const mergedResult = {
+    Responses: {
+      [ aTable ] : []
     }
   }
 
-  dbRequestDebugLog('tableBatchGet', params, 'No error--just checking things out')
+  while (iteration <= numIterations) {
+    if (endIndex > numItems) {
+      endIndex = numItems
+    }
 
-  return new Promise((resolve, reject) => {
-    _docClientAK.batchGet(params, (err, data) => {
-      if (err) {
-        dbRequestDebugLog('tableBatchGet', params, err)
-
-        reject(err)
-      } else {
-        resolve(data)
+    const params = {
+      RequestItems: {
+        [ aTable ]: {
+          Keys: anArrOfKeyValuePairs.slice(startIndex, endIndex)
+        }
       }
-    })
-  })
+    }
+
+    dbRequestDebugLog('tableBatchGet', params, `No error.\nProcessing [${startIndex} : ${endIndex}) of ${numItems} elements.`)
+
+    try {
+      const result = await new Promise(
+        (resolve, reject) => {
+          _docClientAK.batchGet(params, (err, data) => {
+            if (err) {
+              dbRequestDebugLog('tableBatchGet', params, err)
+
+              reject(err)
+            } else {
+              resolve(data)
+            }
+          })
+        })
+
+      mergedResult.Responses[aTable] =
+        mergedResult.Responses[aTable].concat(result.Responses[aTable])
+    } catch (error) {
+      dbRequestDebugLog('tableBatchGet', params, `${error}\nError Processing [${startIndex} : ${endIndex}) of ${numItems} elements.`)
+    }
+
+    iteration++
+    startIndex += maxItemsPerIteration
+    endIndex += maxItemsPerIteration
+  }
+
+  return mergedResult
 }
 
 export async function tablePut(aTable, anObject) {

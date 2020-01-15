@@ -141,9 +141,8 @@ export async function walletAnalyticsDataTableAddWalletForAnalytics(
 }
 
 export async function walletToUuidMapTableGetUuids(anArrayOfWalletAddrs) {
-  if (anArrayOfWalletAddrs.length > 100) {
-    throw new Error('Segments larger than 100 are not presently supported.')
-  }
+  console.log('walletToUuidMapTableGetUuids:')
+  console.log(`anArrayOfWalletAddrs = ${JSON.stringify(anArrayOfWalletAddrs)}`)
 
   const arrOfKeyValuePairs = []
   for (const walletAddress of anArrayOfWalletAddrs) {
@@ -152,8 +151,12 @@ export async function walletToUuidMapTableGetUuids(anArrayOfWalletAddrs) {
     })
   }
 
-  const rawDataResults = await tableBatchGet(
-    process.env.REACT_APP_UUID_TABLE, arrOfKeyValuePairs)
+
+  console.log(`arrOfKeyValuePairs = ${JSON.stringify(arrOfKeyValuePairs)}`)
+  console.log()
+
+  const rawDataResults =
+    await tableBatchGet(process.env.REACT_APP_UUID_TABLE, arrOfKeyValuePairs)
 
   let walletToUuids = undefined
   try {

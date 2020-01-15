@@ -86,7 +86,7 @@ export async function handleData(dataToProcess) {
           const { currentSegments, notifications } = thisApp;
           let notificationsToReturn = []
           //Check to see if there are any notifications for this app
-          if(notifications.length > 0) {
+          if(notifications && notifications.length > 0) {
             for(const notification of notifications) {
               //Check the segment for the logged in user
               const thisSegment = currentSegments.filter(a => a.id === notification.segmentId)[0]
@@ -252,7 +252,7 @@ export async function filterByWalletBalance(users, balanceCriteria) {
         }
       }
     }
-    
+
     return filteredUsers;
   }
 }
@@ -290,8 +290,8 @@ export async function tokenFetch(url) {
     } else {
       return 0
     }
-    
-    
+
+
   })
   .catch(function (err) {
     console.log(err.message);
