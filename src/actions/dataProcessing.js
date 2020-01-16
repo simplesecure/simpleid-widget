@@ -6,9 +6,9 @@ const rp = require('request-promise');
 const ethers = require('ethers');
 const ALETHIO_KEY = process.env.REACT_APP_ALETHIO_KEY;
 const rootUrl = `https://api.aleth.io/v1`;
+const rootEmailServiceUrl = 'http://localhost:3000' //This should be an env variable
 const headers = { Authorization: `Bearer ${ALETHIO_KEY}`, 'Content-Type': 'application/json' }
-let addresses = [];
-
+let addresses = []
 export async function handleData(dataToProcess) {
   const { data, type } = dataToProcess;
   console.log(dataToProcess);
@@ -53,16 +53,24 @@ export async function handleData(dataToProcess) {
     //Data should include the following:
     //const { addresses, app_id, template, subject } = data;
     //Commented out because we don't need each individual item separately
+    console.log(data);
+    const { template, subject, from } = data
     const uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
 
     //Now we need to take this list and fetch the emails for the users
     //In production we should not print this and not return this to the client
-
-
+    const emails = await getSidSvcs().getEmailsForUuids(uuidList)
     //Once we have the emails, send them to the email service lambda with the template
+    const dataForEmailService = {
+      emails, 
+      template, 
+      subject, 
+      from
+    }
+    const sendEmails = await handleEmails(dataForEmailService, rootEmailServiceUrl)
     //const { template } = data;
     //When we finally finish this function, we'll need to return a success indicator rather than a list of anything
-    return uuidList
+    return sendEmails === "success" ? {success: true, userCount: emails.length} : {success: false}
   } else if(type === 'ping') {
     console.log("let's ping this bad boy")
     console.log(data);
@@ -295,5 +303,24 @@ export async function tokenFetch(url) {
   })
   .catch(function (err) {
     console.log(err.message);
+  });
+}
+
+//Probably don't want to keep this here
+export async function handleEmails(data, url) {
+  const route = '/v1/email'
+  const options = {
+    method: 'POST',
+    uri: url + route,
+    headers,
+    body: data, 
+    json: true
+  }
+  return rp(options)
+  .then(async function (parsedBody) {
+    return parsedBody
+  })
+  .catch(function (err) {
+    return err
   });
 }

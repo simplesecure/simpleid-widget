@@ -711,6 +711,7 @@ export class SidServices
         const emailResults = await userDataTableGetEmailsFromUuid(uuid)
         if (emailResults.Items.length > 0) {
           let email = emailResults.Items[0].email
+          console.log("THIS EMAIL: ", email)
           emails.push(email)
         } else {
           // Try the unauthenticated users table since we didn't find the uuid in

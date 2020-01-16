@@ -172,7 +172,8 @@ export async function tableQuerySpecificItem(aTable, aKeyName, aKeyValue, aSpeci
 // Adapted from: https://stackoverflow.com/questions/51134296/dynamodb-how-to-query-a-global-secondary-index
 //
 export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aKeyValue) {
-
+  console.log("tableGetBySecondaryIndex")
+  console.log("table: ", aTable, "index: ", anIndexName, "keyname: ", aKeyName, "keyvalue: ", aKeyValue)
   const expressionAtrNameObj = {
     [ `#${aKeyName}` ] : aKeyName
   }
@@ -186,18 +187,21 @@ export async function tableGetBySecondaryIndex(aTable, anIndexName, aKeyName, aK
         ':value': aKeyValue
     }
   }
-
-  return new Promise((resolve, reject) => {
-    _docClientAK.query(params, (err, data) => {
-      if (err) {
-        dbRequestDebugLog('tableGetBySecondaryIndex', params, err)
-
-        reject(err)
-      } else {
-        resolve(data)
-      }
+  if(aKeyName) {
+    return new Promise((resolve, reject) => {
+      _docClientAK.query(params, (err, data) => {
+        if (err) {
+          dbRequestDebugLog('tableGetBySecondaryIndex', params, err)
+          reject(err)
+        } else {
+          console.log("THE DATA: ", data)
+          resolve(data)
+        }
+      })
     })
-  })
+  } else {
+    return {}
+  }
 }
 
 // Reference this to make the list_append function work in update set eqn:
