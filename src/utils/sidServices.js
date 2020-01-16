@@ -57,13 +57,6 @@ AWS.config.update({ region: process.env.REACT_APP_REGION })
 const NON_SID_WALLET_USER_INFO = "non-sid-user-info";
 const SID_ANALYTICS_APP_ID = '00000000000000000000000000000000'
 
-// TODO: move these to dynamo / lambda system in milestone 2
-const KEY_FARM_IDS = [
-  '66d158b8-ecbd-4962-aedb-15d5dd4024ee',   // Key 0
-  '2fe4d745-6685-4581-93ca-6fd7aff92426',   // Key 1
-  'ba920788-7c6a-4553-b804-958870279f53'    // Key 2
-]
-
 /*******************************************************************************
  * Configuration Switches
  ******************************************************************************/
@@ -80,24 +73,6 @@ const SID_SVCS_LS_KEY = 'SID_SVCS'
 //const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3' TODO: AC code, do we need this? Wasn't being used
 //                                                        Justin: - this is going to get used to obfuscate
 //                                                                  our local store when everything's done.
-
-
-// TODO: move this to dynamo / lambda system in milestone 2 (the max keys value so it's dynamic)
-//   - after moving we'll make these undefined and the lambda will set them for the user
-function getKeyAssignments() {
-  const MAX_KEYS = KEY_FARM_IDS.length
-
-  // TODO: - always ensure key selection isn't repeated (i.e. KFA1 !== KFA2)
-  //       - consider using crypto's getRandomValues method as below
-  const KFA1 = Math.floor(Math.random() * MAX_KEYS)
-  const KFA2 = Math.floor(Math.random() * MAX_KEYS)
-
-  return {
-    "custom:kfa1" : KEY_FARM_IDS[KFA1],
-    "custom:kfa2" : KEY_FARM_IDS[KFA2]
-  }
-}
-
 
 export class SidServices
 {
@@ -271,12 +246,9 @@ export class SidServices
     // signUp flow:
     ///////////////
     try {
-      const keyAssignments = getKeyAssignments()
-
       const params = {
         username: anEmail,
-        password: getRandomString(30),
-        attributes: keyAssignments
+        password: getRandomString(30)
       }
       await Auth.signUp(params)
 
@@ -285,8 +257,7 @@ export class SidServices
       // Local state store items for sign-up process after successfully answering
       // a challenge question:
       this.persist.email = anEmail
-      this.keyId1 = keyAssignments["custom:kfa1"]
-      this.keyId2 = keyAssignments["custom:kfa2"]
+
       this.signUpUserOnConfirm = true
     } catch (error) {
       throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
@@ -360,6 +331,13 @@ export class SidServices
       // Phase 2 of signUp flow:
       //////////////////////////
       try {
+        //  -1. Update the key IDs from the token to encrypt the user's wallet
+        //      with Cognito IDP such that we can't see it ever.
+        //
+        const keyAssignments = await this.getKeyAssignmentFromTokenAttr()
+        this.keyId1 = keyAssignments['kfa1']
+        this.keyId2 = keyAssignments['kfa2']
+
         //  0. Generate uuid
         //
         this.persist.userUuid = uuidv4()
