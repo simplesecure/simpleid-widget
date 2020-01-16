@@ -77,7 +77,6 @@ export async function handleData(dataToProcess) {
   } else if(type === 'notifications') {
     const { appId, address } = data
     let results = undefined
-    console.log("TIME TO FETCH THE NOTIFICATIONS")
     console.log(data)
     //First we need to fetch the org_id because the app doesn't have it
     //TODO: should we give the app the org id? Are there any security concerns in doing so?
@@ -106,7 +105,7 @@ export async function handleData(dataToProcess) {
             }
             results = notificationsToReturn;
           } else {
-            results = "No available notifications"
+            results = []
           }
         } else {
           //TODO: The engagement app doesn't have any apps nested under it. We need to fix this
