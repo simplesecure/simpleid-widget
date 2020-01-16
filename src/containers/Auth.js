@@ -20,7 +20,6 @@ export default class Auth extends React.Component {
     setGlobal({ password: e.target.value, encrypt });
   }
 
-
   //
   // Renderers
   //////////////////////////////////////////////////////////////////////////////
@@ -28,7 +27,7 @@ export default class Auth extends React.Component {
     return (
       <div>
         <h5>Enter the code you received via email to continue</h5>
-        <p>If you didn't receive a code, <span className="a-span" onClick={() => setGlobal({ auth: true, action: "sign-in"})}>try sending it again.</span></p>
+        <p>If you didn't receive a code, <span className="a-span" onClick={signIn}>try sending it again.</span></p>
         <Form onSubmit={approveSignIn}>
           <Form.Group controlId="formBasicEmail">
             <Form.Control onChange={this.handleCode} type="text" placeholder="123456" />
@@ -122,8 +121,7 @@ export default class Auth extends React.Component {
     )
   }
 
-  renderEnterEmailHosted = (theConfig) => {
-    console.log("rendering")
+  renderEnterEmailHosted = () => {
     return (
       <div>
         <h5>Sign Into Your SimpleID Wallet</h5>
@@ -145,7 +143,6 @@ export default class Auth extends React.Component {
 
   render = () => {
     const { config, action } = this.global;
-    console.log(action);
 
     let containerElements = undefined
     switch (action) {

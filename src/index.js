@@ -5,6 +5,7 @@ import App from './App';
 import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 import { handleData } from './actions/dataProcessing';
+import { signIn } from './actions/postMessage';
 
 const connection = connectToParent({
   // Methods child is exposing to parent
@@ -23,7 +24,17 @@ connection.promise.then(parent => {
   parent.checkAction().then(async (action) => {
     console.log("ACTION: ", action);
     //First check if this is a sign out request
-    if(action === 'sign-out') {
+    if(Object.keys(action) && Object.keys(action)[0] === 'thisAction') {
+      const { email, thisAction } = action;
+      if(thisAction === 'sign-in-email-provided') {
+        //This is the only case where the action comes in as an object
+        //Here the developer has passed us an email address
+        //This is likely from an OAuth flow
+        setGlobal({ email })
+        await signIn()
+        return;
+      }
+    } else if(action === 'sign-out') {
       await localStorage.clear();
       //window.location.reload();
       parent.completeSignOut();
