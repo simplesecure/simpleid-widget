@@ -1,12 +1,12 @@
 import { getGlobal } from 'reactn';
 import { closeWidget } from './postMessage';
-import { walletAnalyticsDataTableGet, organizationDataTableGet } from '../utils/dynamoConveniences';
+import { walletAnalyticsDataTableGet, organizationDataTableGet, walletAnalyticsDataTablePut, organizationDataTablePut } from '../utils/dynamoConveniences';
 import { getSidSvcs } from '../index';
 const rp = require('request-promise');
 const ethers = require('ethers');
 const ALETHIO_KEY = process.env.REACT_APP_ALETHIO_KEY;
 const rootUrl = `https://api.aleth.io/v1`;
-const rootEmailServiceUrl = 'http://localhost:3000' //This should be an env variable
+const rootEmailServiceUrl = 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1' //!process.env.NODE_ENV === 'production' ? 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1/v1/email' : 'http://localhost:3000' //This should be an env variable
 const headers = { Authorization: `Bearer ${ALETHIO_KEY}`, 'Content-Type': 'application/json' }
 let addresses = []
 export async function handleData(dataToProcess) {
@@ -58,22 +58,33 @@ export async function handleData(dataToProcess) {
     const uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
 
     //Now we need to take this list and fetch the emails for the users
-    //In production we should not print this and not return this to the client
-    const emails = await getSidSvcs().getEmailsForUuids(uuidList)
-    //Once we have the emails, send them to the email service lambda with the template
     const dataForEmailService = {
-      emails, 
+      uuidList, 
       template, 
       subject, 
       from
     }
+    //Once we have the emails, send them to the email service lambda with the template
     const sendEmails = await handleEmails(dataForEmailService, rootEmailServiceUrl)
-    //const { template } = data;
     //When we finally finish this function, we'll need to return a success indicator rather than a list of anything
-    return sendEmails === "success" ? {success: true, userCount: emails.length} : {success: false}
+    return sendEmails === "success" ? {success: true, userCount: uuidList.length} : {success: false}
   } else if(type === 'ping') {
-    console.log("let's ping this bad boy")
-    console.log(data);
+    const appId = data && data.appDetails && data.appDetails.appId ? data.appDetails.appId : undefined
+    //First we fetch the data from the org
+    try {
+      const appData = await walletAnalyticsDataTableGet(appId)
+      //Now we can post the ping data back
+      const dataToModify = appData.Item
+      dataToModify['verified'] = {
+        success: true, 
+        date: data.date, 
+        origin: data.origin
+      }
+      await walletAnalyticsDataTablePut(dataToModify)
+      return true
+    } catch(e) {
+      console.log(e)
+    }
   } else if(type === 'notifications') {
     const { appId, address } = data
     let results = undefined
@@ -118,6 +129,35 @@ export async function handleData(dataToProcess) {
       results = "Error fetching app data"
     }
     return results;
+  } else if(type === 'notification-seen') {
+    console.log("Notification has been seen!")
+    console.log(data)
+    const appData = await walletAnalyticsDataTableGet(data.appDetails.appId);
+    if(appData.Item) {
+      const org_id = appData.Item.org_id
+      //Now with the org_id, we can fetch the notification info from the org_table
+      const orgData = await organizationDataTableGet(org_id);
+      try {
+        const anObject = orgData.Item
+        let apps = anObject.apps
+        let thisApp = apps[data.appData.appId]
+        let notifications = thisApp.notifications
+        let thisNotification = notifications[data.messageId]
+        if(thisNotification.seenCount) {
+          thisNotification.seenCount = thisNotification.seenCount++
+        } else {
+          thisNotification['seenCount'] = 1
+        }
+        anObject.apps = apps;
+
+        anObject[process.env.REACT_APP_OD_TABLE_PK] = org_id
+
+        await organizationDataTablePut(anObject)
+      
+      } catch (suppressedError) {
+        console.log(`ERROR: problem writing to DB.\n${suppressedError}`)
+      }
+    }
   } else if(type === 'create-project') {
     const { appObject, orgId } = data;
     const createProject = await getSidSvcs().createAppId(orgId, appObject)
