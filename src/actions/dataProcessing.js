@@ -46,7 +46,8 @@ export async function handleData(dataToProcess) {
       }
       return results;
     } catch(e) {
-      console.log("ITS BAD: ", e)
+      console.log("Error: ", e)
+      return e
     }
   } else if(type === 'email messaging') {
     //Here we will do something similar to segment data except we will send the appropriate message
@@ -55,8 +56,13 @@ export async function handleData(dataToProcess) {
     //Commented out because we don't need each individual item separately
     console.log(data);
     const { template, subject, from } = data
-    const uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
-
+    let uuidList = undefined
+    try {
+      uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
+    } catch(e) {
+      console.log("UUID ERROR: ", e)
+    }
+    
     //Now we need to take this list and fetch the emails for the users
     const dataForEmailService = {
       uuidList, 
@@ -66,8 +72,10 @@ export async function handleData(dataToProcess) {
     }
     //Once we have the emails, send them to the email service lambda with the template
     const sendEmails = await handleEmails(dataForEmailService, rootEmailServiceUrl)
+    console.log("FROM THE SERVER: ", sendEmails)
     //When we finally finish this function, we'll need to return a success indicator rather than a list of anything
-    return sendEmails === "success" ? {success: true, userCount: uuidList.length} : {success: false}
+    //   TODO: check for status code not a string. 
+    return sendEmails
   } else if(type === 'ping') {
     const appId = data && data.appDetails && data.appDetails.appId ? data.appDetails.appId : undefined
     //First we fetch the data from the org
@@ -94,7 +102,6 @@ export async function handleData(dataToProcess) {
     const appData = await walletAnalyticsDataTableGet(appId);
     if(appData.Item) {
       const org_id = appData.Item.org_id
-
       //Now with the org_id, we can fetch the notification info from the org_table
       const orgData = await organizationDataTableGet(org_id);
       console.log(orgData)
@@ -109,10 +116,12 @@ export async function handleData(dataToProcess) {
               //Check the segment for the logged in user
               const thisSegment = currentSegments.filter(a => a.id === notification.segmentId)[0]
               const users = thisSegment.users;
-              const thisUser = users.filter(a => a === address)[0];
-              console.log("THIS USER FOUND", thisUser);
-              notification['org_id'] = org_id
-              notificationsToReturn.push(notification);
+              const thisUser = users.filter(u => u.toLowerCase() === address.toLowerCase())[0];
+              if(thisUser) {
+                console.log("THIS USER FOUND", thisUser);
+                notification['org_id'] = org_id
+                notificationsToReturn.push(notification);
+              }
             }
             results = notificationsToReturn;
           } else {
@@ -132,7 +141,7 @@ export async function handleData(dataToProcess) {
   } else if(type === 'notification-seen') {
     console.log("Notification has been seen!")
     console.log(data)
-    const appData = await walletAnalyticsDataTableGet(data.appDetails.appId);
+    const appData = await walletAnalyticsDataTableGet(data.appData.appId);
     if(appData.Item) {
       const org_id = appData.Item.org_id
       //Now with the org_id, we can fetch the notification info from the org_table
@@ -142,7 +151,7 @@ export async function handleData(dataToProcess) {
         let apps = anObject.apps
         let thisApp = apps[data.appData.appId]
         let notifications = thisApp.notifications
-        let thisNotification = notifications[data.messageId]
+        let thisNotification = notifications[data.messageID]
         if(thisNotification.seenCount) {
           thisNotification.seenCount = thisNotification.seenCount++
         } else {
@@ -245,7 +254,7 @@ export async function filterByLastSeen(users, data) {
 }
 
 export async function filterByWalletBalance(users, balanceCriteria) {
-  const { config } = getGlobal();
+  const { config } = await getGlobal();
   const { operatorType, amount } = balanceCriteria;
   const provider = ethers.getDefaultProvider(config.network ? config.network : 'mainnet');
   let filteredUsers = [];

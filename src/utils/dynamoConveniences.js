@@ -136,7 +136,9 @@ export async function walletAnalyticsDataTableAddWalletForAnalytics(
     { [ process.env.REACT_APP_AD_TABLE_PK] : anAppId },
     'analytics',
     aWalletAddress,
-    {}
+    {
+      last_seen: Date.now()
+    }
   )
 }
 

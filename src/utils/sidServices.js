@@ -16,7 +16,9 @@ import { walletAnalyticsDataTablePut,
          walletToUuidMapTableGetUuids,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableGetAppPublicKey,
-         walletAnalyticsDataTableAddWalletForAnalytics } from './dynamoConveniences.js'
+         walletAnalyticsDataTableAddWalletForAnalytics, 
+         walletAnalyticsDataTableGet, 
+         walletToUuidMapTableGet } from './dynamoConveniences.js'
 
 import { jsonParseToBuffer,
          getRandomString } from './misc.js'
@@ -515,6 +517,9 @@ export class SidServices
           await this.signUserUpToNewApp(authenticatedUser)
         }
 
+        //Need to update the date stamp
+        await this.updateDateStamp()
+
         // WARNING: Moving this will break the SID Analytics App
         //
         this.persist.sid = userData && userData.sid ? userData.sid : undefined;
@@ -952,11 +957,26 @@ export class SidServices
    // is also indexed):
    // console.log('userInfo:')
    // console.log(JSON.stringify(userInfo, 0, 2))
-   console.log(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
-   const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
-   const userExists = (uuidResults.Items.length === 1)
-   if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {
+   let userExists = false
+   let uuidResults = undefined
+   //Not all providers will send through the email
+   if(email) {
+    console.log(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
+    const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
+    userExists = (uuidResults.Items.length === 1)
+    if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {
      throw new Error('ERROR: collision with user in Simple ID unauth\'d user table.')
+    }
+   } else {
+    //   TODO: Need AC to review this
+    //   Querying the wallet to uuid map because we only have a wallet address here
+    const walletResults = await walletToUuidMapTableGet(address)
+    console.log("WALLET RESULTS ", walletResults)
+
+    userExists = (walletResults.Items && walletResults.Items.length === 1)
+    if (walletResults.Items && walletResults.Items.length !== 0 && walletResults.Items.length !== 1) {
+     throw new Error('ERROR: collision with user in Simple ID unauth\'d user table.')
+    }
    }
 
    if (!userExists) {
@@ -1013,7 +1033,6 @@ export class SidServices
      //    this app is listed.
      //
      const unauthdUuidRowObj = await unauthenticatedUuidTableGetByUuid(this.persist.userUuid)
-
      // BEGIN REMOVE
      const oldAppId = this.appId
      if (TEST_SIGN_USER_UP_TO_NEW_APP) {
@@ -1037,6 +1056,9 @@ export class SidServices
      // restore appId
      this.appId = oldAppId
      // END REMOVE
+
+     //Need to update date stamp
+     await this.updateDateStamp()
    }
 
    // TODO: this needs to be obfuscated. It should also use a common method with
@@ -1048,12 +1070,38 @@ export class SidServices
    //TODO: AC review. This feels super hacky, but might be the right way to handle it
    localStorage.setItem(NON_SID_WALLET_USER_INFO, JSON.stringify(userInfo));
 
-
+   const returnableUserData = {
+     wallet: {
+       ethAddr: address
+     }
+   }
+   return returnableUserData
  }
 
  getNonSIDUserInfo() {
    const userInfo = localStorage.getItem(NON_SID_WALLET_USER_INFO);
    return JSON.parse(userInfo);
+ }
+
+ async updateDateStamp() {
+  try {
+    //Fetch from DB
+    const appData = await walletAnalyticsDataTableGet(this.appId)
+
+    //    TODO: need to examine if we will run into address casing issues
+    //    Some address results have capital letters in them and some have 
+    //    lower case. Need consistency to do look ups like this 
+   
+    const dataRowToUpdate = appData.Item
+    const users = dataRowToUpdate.analytics
+    const thisUser = users[this.persist.address]
+    thisUser['last_seen'] = Date.now()
+    //now we put it back into the DB
+    await walletAnalyticsDataTablePut(dataRowToUpdate)
+  } catch (e) {
+    console.log("Error updating date stamp: ", e)
+  }
+  
  }
 
 /******************************************************************************

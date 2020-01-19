@@ -41,9 +41,9 @@ connection.promise.then(parent => {
       return;
     } else if(action === 'sign-in-no-sid') {
       parent.dataToProcess().then(async (userInfo) => {
-        await getSidSvcs().persistNonSIDUserInfo(userInfo);
-        parent.close();
-        return;
+        const dataToReturn = await getSidSvcs().persistNonSIDUserInfo(userInfo);
+        parent.returnProcessedData(dataToReturn);
+        parent.close()
       })
     } else if(action === 'process-data') {
       parent.dataToProcess().then(async (data) => {
