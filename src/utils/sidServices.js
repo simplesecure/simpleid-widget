@@ -16,8 +16,8 @@ import { walletAnalyticsDataTablePut,
          walletToUuidMapTableGetUuids,
          walletToUuidMapTableAddCipherTextUuidForAppId,
          walletAnalyticsDataTableGetAppPublicKey,
-         walletAnalyticsDataTableAddWalletForAnalytics, 
-         walletAnalyticsDataTableGet, 
+         walletAnalyticsDataTableAddWalletForAnalytics,
+         walletAnalyticsDataTableGet,
          walletToUuidMapTableGet } from './dynamoConveniences.js'
 
 import { jsonParseToBuffer,
@@ -542,8 +542,6 @@ export class SidServices
 
     if (authenticated) {
       try {
-        console.log('this.perist')
-        console.log(JSON.stringify(this.persist))
         // TODO: obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
         localStorage.setItem(SID_SVCS_LS_KEY, JSON.stringify(this.persist))
       } catch (suppressedError) {
@@ -1090,9 +1088,9 @@ export class SidServices
     const appData = await walletAnalyticsDataTableGet(this.appId)
 
     //    TODO: need to examine if we will run into address casing issues
-    //    Some address results have capital letters in them and some have 
-    //    lower case. Need consistency to do look ups like this 
-   
+    //    Some address results have capital letters in them and some have
+    //    lower case. Need consistency to do look ups like this
+
     const dataRowToUpdate = appData.Item
     const users = dataRowToUpdate.analytics
     const thisUser = users[this.persist.address]
@@ -1102,7 +1100,7 @@ export class SidServices
   } catch (e) {
     console.log("Error updating date stamp: ", e)
   }
-  
+
  }
 
 /******************************************************************************
@@ -1111,7 +1109,11 @@ export class SidServices
  *                                                                            *
  ******************************************************************************/
 
-  // TODO: need a way to shortcut this if we already have the credentials
+  // TODO:
+  //      - need a way to shortcut this if we already have the credentials
+  //      - might make sense to store these in a hash and pass them to the
+  //        appropriate method now that we have multiple IDP.
+  //
   requestIdpCredentials = async (
       aRegion:string=process.env.REACT_APP_REGION,
       aUserPoolId:string=process.env.REACT_APP_USER_POOL_ID,
@@ -1145,7 +1147,25 @@ export class SidServices
  ******************************************************************************/
 
   encryptWithKmsUsingIdpCredentials = async (keyId, plainText) => {
-    await this.requestIdpCredentials()
+    await this.requestIdpCredentials(
+      process.env.REACT_APP_REGION,
+      process.env.REACT_APP_USER_POOL_ID,
+      process.env.REACT_APP_CRYPTO_IDENTITY_POOL_ID )
+
+    // IMPORTANT AF:
+    //
+    // Never store this sub. It prevents us from being a money transmitter as
+    // the only person who knows this value and can thus decrypt these cipher
+    // texts is the Cognito user (as opposed to staff who can assume the
+    // Cognito crypto role, but still don't have the Encryption context
+    // required to decrypt the cipher text.)
+    let NEVER_STORE_sub = undefined
+    try {
+      NEVER_STORE_sub = AWS.config.credentials.identityId
+      console.log(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
+    } catch (error) {
+      throw Error(`ERROR: getting credential identityId.\n${error}`)
+    }
 
     // Now that the AWS creds are configured with the cognito login above, we
     // should be able to access the KMS key if we got the IAMs users/roles/grants
@@ -1155,7 +1175,10 @@ export class SidServices
     const cipherText = await new Promise((resolve, reject) => {
       const params = {
         KeyId: keyId,
-        Plaintext: plainText
+        Plaintext: plainText,
+        EncryptionContext: {
+          sub: NEVER_STORE_sub
+        }
       }
 
       kms.encrypt(params, (err, data) => {
@@ -1172,17 +1195,38 @@ export class SidServices
 
 
   decryptWithKmsUsingIdpCredentials = async (cipherText) => {
-    await this.requestIdpCredentials()
+    await this.requestIdpCredentials(
+      process.env.REACT_APP_REGION,
+      process.env.REACT_APP_USER_POOL_ID,
+      process.env.REACT_APP_CRYPTO_IDENTITY_POOL_ID )
+
+    // IMPORTANT AF:
+    //
+    // Never store this sub. It prevents us from being a money transmitter as
+    // the only person who knows this value and can thus decrypt these cipher
+    // texts is the Cognito user (as opposed to staff who can assume the
+    // Cognito crypto role, but still don't have the Encryption context
+    // required to decrypt the cipher text.)
+    let NEVER_STORE_sub = undefined
+    try {
+      NEVER_STORE_sub = AWS.config.credentials.identityId
+      console.log(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
+    } catch (error) {
+      throw Error(`ERROR: getting credential identityId.\n${error}`)
+    }
 
     // Now that the AWS creds are configured with the cognito login above, we
     // should be able to access the KMS key if we got the IAMs users/roles/grants
     // correct.
-    const kms = new AWS.KMS( {region:'us-west-2'} )
+    const kms = new AWS.KMS( { region: process.env.REACT_APP_REGION } )
 
     const plainText = await new Promise((resolve, reject) => {
       const params = {
         // KeyId: <Not needed--built into cipher text>,
-        CiphertextBlob: cipherText
+        CiphertextBlob: cipherText,
+        EncryptionContext: {
+          sub: NEVER_STORE_sub
+        }
       }
 
       kms.decrypt(params, (err, data) => {
@@ -1213,12 +1257,13 @@ export class SidServices
 
   // TODO: abstract the restricted sub out of this code so it's more generic and
   //       not just for restricted row access dynamos.
-  tableGetWithIdpCredentials = async (uuids) => {
+  tableGetWithIdpCredentials = async () => {
     await this.requestIdpCredentials()
 
     let sub = undefined
     try {
       sub = AWS.config.credentials.identityId
+      console.log(`DBG:  DB IDP sub = ${sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
@@ -1259,6 +1304,7 @@ export class SidServices
     let sub = undefined
     try {
       sub = AWS.config.credentials.identityId
+      console.log(`DBG:  DB IDP sub = ${sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
