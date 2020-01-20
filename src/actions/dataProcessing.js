@@ -10,9 +10,60 @@ const rootEmailServiceUrl = 'https://cnv69peos0.execute-api.us-west-2.amazonaws.
 const headers = { Authorization: `Bearer ${ALETHIO_KEY}`, 'Content-Type': 'application/json' }
 let addresses = []
 export async function handleData(dataToProcess) {
+  console.log("DATA IN HANDLE DATA FUNCTION: ", dataToProcess)
   const { data, type } = dataToProcess;
-  console.log(dataToProcess);
-  if(type === 'segment') {
+  if(type === 'update-segments') {
+    //Take the whole org data payload and execute on it
+    console.log("ORG DATA PAYLOAD")
+    console.log(data);
+    const thisApp = data.appData && data.appData.Item ? data.appData.Item.apps[data.app_id] : undefined
+    console.log("This APP : ", thisApp)
+    const currentSegments = thisApp.currentSegments;
+    const updatedSegments = []
+    let saveToDb = false
+    for(const seg of currentSegments) {
+      const dataForProcessing = {
+        type: 'segment', 
+        data: seg
+      }
+      const results = await handleData(dataForProcessing)
+      console.log("RESULTS: ", results)
+      if(results.length > seg.userCount) {
+        seg.users = results;
+        seg.userCount = results.length
+        saveToDb = true
+        updatedSegments.push(seg)
+      } else {
+        updatedSegments.push(seg)
+      }
+    }
+
+    console.log("UPDATED SEGMENTS: ", updatedSegments)
+      
+    if(saveToDb === true) {
+      const orgData = data.appData
+      try {
+        const anObject = orgData.Item
+        let apps = anObject.apps
+        let thisApp = apps[data.app_id]
+        let segments = updatedSegments
+        thisApp.currentSegments = segments
+        apps[data.app_id] = thisApp
+
+        anObject.apps = apps;
+
+        anObject[process.env.REACT_APP_OD_TABLE_PK] = data.org_id
+
+        await organizationDataTablePut(anObject)
+        return updatedSegments
+      } catch (suppressedError) {
+        console.log(`ERROR: problem writing to DB.\n${suppressedError}`)
+        return undefined
+      }
+    } else {
+      return updatedSegments
+    }
+  } else if(type === 'segment') {
     let results;
     //Need to fetch user list that matches segment criteria
     //TODO: AC return the entire user list here so we can use it to plug into analytics service and filter
@@ -237,17 +288,15 @@ export function fetchFromURL(url, functionType) {
 
 export async function filterByLastSeen(users, data) {
   const { dateRange } = data;
-  const datum = Date.parse(dateRange.date);
-  console.log(datum)
+  //const datum = Date.parse(dateRange.date);
+  
   let filteredList = []
 
-  console.log("Users: ", users);
-  console.log("Data: ", data)
   const userKeys = Object.keys(users)
   for (const userKey of userKeys) {
-    if (dateRange.rangeType === "Before" && parseInt(users[userKey].last_seen, 10) && parseInt(users[userKey].last_seen, 10) < datum) {
+    if (dateRange.rangeType === "Before" && parseInt(users[userKey].last_seen, 10) < dateRange.date) {
       filteredList.push(userKey);
-    } else if(dateRange.rangeType === "After" && parseInt(users[userKey].last_seen, 10) && parseInt(users[userKey].last_seen, 10) > datum) {
+    } else if(dateRange.rangeType === "After" && parseInt(users[userKey].last_seen, 10) > dateRange.date) {
       filteredList.push(userKey);
     }
   }

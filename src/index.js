@@ -65,7 +65,8 @@ connection.promise.then(parent => {
           //7. Segment Data to be processed is lost
 
           //This is a temporary solution
-          if(data.type === 'segment') {
+          if(data.type === 'update-segments') {
+            data = undefined
             return
           } else {
             parent.close();
