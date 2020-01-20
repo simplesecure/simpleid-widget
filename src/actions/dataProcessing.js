@@ -107,6 +107,7 @@ export async function handleData(dataToProcess) {
       console.log(orgData)
       if(orgData.Item) {
         const thisApp = orgData.Item.apps[appId]
+        console.log("DATA: ", orgData)
         if(thisApp) {
           const { currentSegments, notifications } = thisApp;
           let notificationsToReturn = []

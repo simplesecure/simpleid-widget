@@ -262,6 +262,7 @@ export class SidServices
 
       this.signUpUserOnConfirm = true
     } catch (error) {
+      console.log(error)
       throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
     }
   }
