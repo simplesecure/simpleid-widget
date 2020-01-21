@@ -16,18 +16,13 @@
 }
 
 .header-nav {
-  background-color: #000 !important;
+  background-color: #fff !important;
   margin-bottom: 85px;
 }
 
 .sid-logo {
-  max-height: 100px;
-  position: absolute;
-  top: 10px;
-  left: 33%;
-  padding: 10px;
-  background:
-  #eee;
+  max-width: 75%;
+  margin: auto!important;
 }
 
 .bottom-10 {
@@ -42,7 +37,7 @@
   position: absolute;
   right: 10px;
   top: 10px;
-  color: #fff!important;
+  color: #000!important;
   cursor: pointer;
 }
 
@@ -86,3 +81,6 @@
   }
 }
 
+h5 {
+  font-size: 16px!important;
+}
