@@ -24,10 +24,23 @@ export function closeWidget(close) {
 export async function signIn() {
   const { nonSignInEvent, action } = getGlobal();
   console.log("COGNITO FLOW: ", process.env.REACT_APP_COGNITO_FLOW);
-  // New AC Flow
-  setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
-  const { email } = await getGlobal();
-  const signInFlow = await getSidSvcs().signInOrUp(email)
+  console.log("COGNITO PASSWORD FLOW:", process.env.REACT_APP_COGNITO_W_PASSWORD)
+
+  let signInFlow = undefined
+  if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
+    setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
+
+    console.log('DBG: Attempting to log in to Cognito Using Password Flow')
+    const { email, password } = await getGlobal()
+    console.log(`DBG:  e:${email},  p:${password}`)
+    signInFlow = await getSidSvcs().signInOrUpWithPassword(email, password)
+  } else {
+    // LOL: Old-New AC Flow (Passwordless)
+    setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
+    const { email } = await getGlobal();
+    signInFlow = await getSidSvcs().signInOrUp(email)
+  }
+
   const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
   const walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : "";
   const sid = getSidSvcs().getSID();
@@ -47,7 +60,7 @@ export async function signIn() {
       const userData = {
         wallet: {
           ethAddr: walletAddr
-        }, 
+        },
         orgId: sid ? sid : null
       }
 
@@ -55,9 +68,14 @@ export async function signIn() {
         closeWidget(true);
       })
     });
+  } else if ( (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") &&
+              (signInFlow === 'finish-passwordless-login') ) {
+    // TODO: refactor the code approveSignIn calls (this makes no sense and is
+    //       quick appropriation of the routines in answerCustomChallenge).
+    approveSignIn()
   } else {
     setGlobal({ auth: nonSignInEvent ? false : true, action: nonSignInEvent ? action : 'sign-in-approval' })
-  } 
+  }
 }
 
 export async function handlePassword(e, actionType) {
@@ -190,16 +208,16 @@ export async function approveSignIn() {
             //
           }
         });
-  
+
         connection.promise.then(parent => {
           const userData = {
             email: "", //TODO: remove this
             wallet: {
               ethAddr: walletAddr
-            }, 
+            },
             orgId: sid ? sid : null
           }
-  
+
           parent.storeWallet(JSON.stringify(userData)).then((res) => {
             closeWidget(true);
           })
@@ -251,7 +269,7 @@ export async function finishSignUp() {
       email: "", //TODO: remove this
       wallet: {
         ethAddr: walletAddr ? walletAddr : "ERROR WITH WALLET"
-      }, 
+      },
       orgId: sid ? sid : null
     }
 

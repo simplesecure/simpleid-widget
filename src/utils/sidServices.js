@@ -39,16 +39,54 @@ const Buffer = require('buffer/').Buffer  // note: the trailing slash is importa
 const eccrypto = require('eccrypto')
 
 
+const PASSWORD_USER_POOL =
+  (process.env.REACT_APP_COGNITO_W_PASSWORD === "true")
+
+const USER_POOL_ID = (PASSWORD_USER_POOL) ?
+  process.env.REACT_APP_PASSWORD_USER_POOL_ID :
+  process.env.REACT_APP_USER_POOL_ID
+
+const USER_POOL_WEB_CLIENT_ID = (PASSWORD_USER_POOL) ?
+ process.env.REACT_APP_PASSWORD_USER_POOL_WEB_CLIENT_ID :
+ process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID
 
 // TODO: clean up for security best practices
 //       currently pulled from .env
 //       see: https://create-react-app.dev/docs/adding-custom-environment-variables/
 const amplifyAuthObj = {
   region: process.env.REACT_APP_REGION,
-  userPoolId: process.env.REACT_APP_USER_POOL_ID,
-  userPoolWebClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID,
+  userPoolId: USER_POOL_ID,
+  userPoolWebClientId: USER_POOL_WEB_CLIENT_ID,
   identityPoolId: process.env.REACT_APP_IDENTITY_POOL_ID
 }
+if (PASSWORD_USER_POOL) {
+  // TODO: Prefer to use USER_SRP_AUTH but short on time.  Revisit this soon
+  //       so that password never leaves client.  Super important!
+  //   references:
+  //      - (here too) https://stackoverflow.com/questions/54430978/unable-to-verify-secret-hash-for-client-at-refresh-token-auth
+  //      - (way down in this) https://stackoverflow.com/questions/37438879/unable-to-verify-secret-hash-for-client-in-amazon-cognito-userpools
+  //      - https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_InitiateAuth.html
+  //        - https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/CognitoIdentityServiceProvider.html#initiateAuth-property
+  //      - https://stackoverflow.com/questions/41526205/implementing-user-srp-auth-with-python-boto3-for-aws-cognito
+  //      - https://docs.amazonaws.cn/en_us/cognito/latest/developerguide/cognito-dg.pdf
+  //      - https://aws-amplify.github.io/docs/js/authentication  (section Switching Authentication Flow Type)
+  //      -
+  //      - https://stackoverflow.com/questions/49000676/aws-cognito-authentication-user-password-auth-flow-not-enabled-for-this-client
+  //
+  amplifyAuthObj['authenticationFlowType'] = 'USER_PASSWORD_AUTH'
+  //
+  // More TODO:
+  //      - https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_CreateUserPoolClient.html#CognitoUserPools-CreateUserPoolClient-request-PreventUserExistenceErrors
+  // Doesn't work:
+  // amplifyAuthObj['PreventUserExistenceErrors'] = 'LEGACY'
+  // Did this instead for the time being:
+  //      - https://github.com/aws-amplify/amplify-js/issues/4430
+}
+
+console.log('DBG: Amplify configuration = ')
+console.log(JSON.stringify(amplifyAuthObj, 0, 2))
+console.log('')
+
 Amplify.configure({
   Auth: amplifyAuthObj
 });
@@ -75,6 +113,44 @@ const SID_SVCS_LS_KEY = 'SID_SVCS'
 //const SID_SVCS_LS_ENC_KEY = 'fsjl-239i-sjn3-wen3' TODO: AC code, do we need this? Wasn't being used
 //                                                        Justin: - this is going to get used to obfuscate
 //                                                                  our local store when everything's done.
+
+
+// TODO: Remove this soon.  #Bicycle
+function getKeyAssignments() {
+  const keyIds = {
+    1 : '2fe4d745-6685-4581-93ca-6fd7aff92426',
+    8 : '5b70dc4d-a34a-4ff2-8c7e-56f772dbbea3',
+    0 : '66d158b8-ecbd-4962-aedb-15d5dd4024ee',
+    4 : '812f95c7-98d8-4eed-bd77-4b40356a90a7',
+    5 : '836fb98e-3b5f-4694-925a-6ae49466af39',
+    3 : '8a3fbf1d-4ad0-4dfb-bc95-daf1c2b5a840',
+    7 : 'ab8e6e55-efff-4a8d-9b9c-c9e88a6fbf95',
+    2 : 'ba920788-7c6a-4553-b804-958870279f53',
+    6 : 'f2445d7c-2c60-4846-acf9-cc899cf3d4f1',
+    9 : 'fa3e1b67-b62b-4455-a2f7-0190fb40c2c8'
+  }
+
+  const MAX_KEYS = Object.keys(keyIds).length
+
+  // Ensure key selection isn't repeated (i.e. KFA1 !== KFA2)
+  //
+  const KFA1 = Math.floor(Math.random() * MAX_KEYS)
+  let KFA2 = Math.floor(Math.random() * MAX_KEYS)
+  if ( (KFA2 === KFA1) && (MAX_KEYS > 1) ) {
+    // Choosing again to ensure different keys.
+    //
+    KFA2++
+    if (KFA2 >= MAX_KEYS) {
+      KFA2 = 0
+    }
+  }
+
+  return {
+    "custom:kfa1" : keyIds[KFA1],
+    "custom:kfa2" : keyIds[KFA2]
+  }
+}
+
 
 export class SidServices
 {
@@ -115,7 +191,8 @@ export class SidServices
 
     this.neverPersist = {
       wallet: undefined,
-      priKey: undefined
+      priKey: undefined,
+      password: undefined
     }
 
 
@@ -223,7 +300,7 @@ export class SidServices
   *              - two storage options--Cognito User Pool or DB
   *
   */
-  signInOrUp = async (anEmail, anAppId) => {
+  signInOrUp = async (anEmail) => {
     const authenticated = await this.isAuthenticated(anEmail)
     if (authenticated) {
       // If the user is already authenticated, then skip this function.
@@ -260,6 +337,104 @@ export class SidServices
       // a challenge question:
       this.persist.email = anEmail
 
+      this.signUpUserOnConfirm = true
+    } catch (error) {
+      console.log(error)
+      throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
+    }
+  }
+
+  signInOrUpWithPassword = async(anEmail, aPassword) => {
+    console.log(`DBG: signInOrUpWithPassword e:${anEmail},  p:${aPassword}`)
+
+    // TODO: Can we do this here too:
+    // const authenticated = await this.isAuthenticated(anEmail)
+    // if (authenticated) {
+    //   // If the user is already authenticated, then skip this function.
+    //   return 'already-logged-in'
+    // }
+
+
+    // Most important doc yet:
+    //   - https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pool-managing-errors.html
+    //
+    // TODO: this might be the wrong approach--might have to invert based on the end
+    //       of this thread:
+    //   - https://github.com/aws-amplify/amplify-js/issues/1067
+    // Try to Sign In:
+    //   reference: https://aws-amplify.github.io/docs/js/authentication#sign-in
+    try {
+      this.cognitoUser = await Auth.signIn(anEmail, aPassword)
+      this.persist.email = anEmail
+      return 'finish-passwordless-login'
+    } catch (err) {
+      console.log('DBG: signInOrUpWithPassword. Initial sign in attempt failed.')
+      console.log('Error code:', err.code)
+      console.log('Error:', JSON.stringify(err, 0, 2))
+      console.log()
+      if (err.code === 'UserNotConfirmedException') {
+          // The error happens if the user didn't finish the confirmation step when signing up
+          // In this case you need to resend the code and confirm the user
+          // About how to resend the code and confirm the user, please check the signUp part
+          // TODO:
+          console.log(err);
+          throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+      } else if (err.code === 'PasswordResetRequiredException') {
+          // The error happens when the password is reset in the Cognito console
+          // In this case you need to call forgotPassword to reset the password
+          // Please check the Forgot Password part.
+          // TODO:
+          console.log(err);
+          throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+      } else if (err.code === 'NotAuthorizedException') {
+          // The error happens when the incorrect password is provided
+          // TODO:
+          console.log(err);
+          throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+      } else if (err.code === 'UserNotFoundException') {
+          // The error happens when the supplied username/email does not exist in the Cognito user pool
+          // DO NOTHING HERE, proceed to try and sign the user up with the provided creds.
+      } else {
+          console.log(err);
+          throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+      }
+    }
+
+    // Try to Sign Up:
+    //   reference:  https://aws-amplify.github.io/docs/js/authentication#sign-in
+    //
+    // Note:
+    //        We're doing verified sign-up so this is a lot like the passwordless flow
+    //        for sign-up (not sign-in). It's similar in that we collect a code from the
+    //        user and pass that in to verify the email.
+    try {
+      // TODO: Move the key assignment to a lambda with admin priviledges on
+      //       cognito UDP attributes to prevent users from mucking with the key
+      //       ids.
+      const keyAssignments = getKeyAssignments()
+
+      const params = {
+        username: anEmail,
+        password: aPassword,
+        attributes: {
+          email: anEmail,
+          ...keyAssignments
+        },
+        validationData: []
+      }
+      await Auth.signUp(params)
+
+      // Unlike the other flow, we don't sign the user up yet--we wait on their
+      // code and then sign them up.
+      //    (TODO: it might make sense to do this differently here--i.e. make
+      //           them click the verify link in the email at any time or something.)
+      //
+      this.persist.email = anEmail
+      this.neverPersist.password = aPassword    // TODO: Look closer at this (it
+                                                // might be a bad idea / way to
+                                                // do this). (Doing it b/c I need
+                                                // to get the password to the rest
+                                                // of the signup flow in answerCustomChallenge).
       this.signUpUserOnConfirm = true
     } catch (error) {
       console.log(error)
@@ -322,9 +497,70 @@ export class SidServices
   answerCustomChallenge = async (anAnswer) => {
     let signUpMnemonicReveal = false
 
-    // Following line throws and is intentionally unhandled.
-    this.cognitoUser = await Auth.sendCustomChallengeAnswer(
-      this.cognitoUser, anAnswer)
+    if (PASSWORD_USER_POOL) {
+      console.log(`DBG: answerCustomChallenge password flow.`)
+      // TODO: refactor this whole method to make sense if we keep the password flow stuff.
+      //       (i.e. split out the common code into names that make more sense etc.).
+      //
+      // We only need to do this stuff here if the user is signing up,
+      // otherwise we just run the rest of the flow below this entire conditional
+      // block.
+      //
+      console.log(`DBG: signUpUserOnConfirm: ${this.signUpUserOnConfirm}`)
+      if (this.signUpUserOnConfirm) {
+        // Password Cognito Flow:
+        //
+        // First send the confirmation code for the email.
+        try {
+          console.log(`DBG: calling confirmSignUp ... e:${this.persist.email}, a:${anAnswer}`)
+          await Auth.confirmSignUp(this.persist.email, anAnswer)
+          console.log('  success!')
+        } catch (err) {
+          // Something went wrong--possibly the confirmation code. TODO: we might
+          // need to get them to re-enter it.
+          console.log(`DBG: answerCustomChallenge(password flow) failed.\n${err}`)
+          throw new Error(err)
+        }
+        // Now sign the user in and proceed with the rest of our flow:
+        try {
+          console.log(`DBG: calling signIn ... e:${this.persist.email}, p:${this.neverPersist.password}`)
+          this.cognitoUser = await Auth.signIn(this.persist.email, this.neverPersist.password)
+          console.log('  success!')
+        } catch (err) {
+          console.log(`DBG: answerCustomChallenge. Sign in attempt failed.\nError code:${err.code}\nError:${err}`)
+          if (err.code === 'UserNotConfirmedException') {
+              // The error happens if the user didn't finish the confirmation step when signing up
+              // In this case you need to resend the code and confirm the user
+              // About how to resend the code and confirm the user, please check the signUp part
+              // TODO:
+              throw new Error(err)
+          } else if (err.code === 'PasswordResetRequiredException') {
+              // The error happens when the password is reset in the Cognito console
+              // In this case you need to call forgotPassword to reset the password
+              // Please check the Forgot Password part.
+              // TODO:
+              throw new Error(err)
+          } else if (err.code === 'NotAuthorizedException') {
+              // The error happens when the incorrect password is provided
+              // TODO:
+              throw new Error(err)
+          } else if (err.code === 'UserNotFoundException') {
+              // The error happens when the supplied username/email does not exist in the Cognito user pool
+              // TODO:
+              throw new Error(err)
+          } else {
+              console.log(err);
+              throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+          }
+        }
+      }
+    } else {
+      // Passwordless Cognito Flow:
+
+      // Following line throws and is intentionally unhandled.
+      this.cognitoUser = await Auth.sendCustomChallengeAnswer(
+        this.cognitoUser, anAnswer)
+    }
 
     // The user has entered a challenge answer and no error occured. Now test
     // to see if they are authenticated into Cognito (i.e. have a valid token):
@@ -357,6 +593,7 @@ export class SidServices
 
         //  3. Encrypt & store private / secret user data
         //
+        console.log('DBG: encryptWithKmsUsingIdpCredentials ...')
         this.persist.secretCipherText1 =
           await this.encryptWithKmsUsingIdpCredentials(this.keyId1, shares[0])
         this.persist.secretCipherText2 =
@@ -405,11 +642,13 @@ export class SidServices
         }
 
         // Write this to the user data table:
+        console.log('DBG: tablePutWithIdpCredentials ...')
         await this.tablePutWithIdpCredentials( userDataRow )
 
         //  4. c)  Create and store entry in Wallet to UUID map for this app
         //         (simple_id_wallet_uuid_map_v001)
         //
+        console.log('DBG: walletAnalyticsDataTableGetAppPublicKey ...')
         const appPublicKey =
           await walletAnalyticsDataTableGetAppPublicKey(this.appId)
         const userUuidCipherText =
@@ -423,6 +662,7 @@ export class SidServices
         //
         // TODO: Make this use Cognito to get write permission to the DB (for the
         //       time being we're using an AWS_SECRET):
+        console.log('DBG: walletToUuidMapTablePut ...')
         await walletToUuidMapTablePut(walletUuidMapRow)
 
         //  4. d)  Create and store Wallet Analytics Data
@@ -430,6 +670,7 @@ export class SidServices
         //
         // TODO (Justin+AC): Events of some sort (i.e. sign-in, sign-up, date etc.)
         //
+        console.log('DBG: walletAnalyticsDataTableAddWalletForAnalytics ...')
         await walletAnalyticsDataTableAddWalletForAnalytics(
           this.persist.address, this.appId)
 
@@ -1116,7 +1357,7 @@ export class SidServices
   //
   requestIdpCredentials = async (
       aRegion:string=process.env.REACT_APP_REGION,
-      aUserPoolId:string=process.env.REACT_APP_USER_POOL_ID,
+      aUserPoolId:string=USER_POOL_ID,
       anIdentityPoolId:string=process.env.REACT_APP_IDENTITY_POOL_ID ) => {
 
     const session = await Auth.currentSession()
@@ -1149,7 +1390,7 @@ export class SidServices
   encryptWithKmsUsingIdpCredentials = async (keyId, plainText) => {
     await this.requestIdpCredentials(
       process.env.REACT_APP_REGION,
-      process.env.REACT_APP_USER_POOL_ID,
+      USER_POOL_ID,
       process.env.REACT_APP_CRYPTO_IDENTITY_POOL_ID )
 
     // IMPORTANT AF:
@@ -1197,7 +1438,7 @@ export class SidServices
   decryptWithKmsUsingIdpCredentials = async (cipherText) => {
     await this.requestIdpCredentials(
       process.env.REACT_APP_REGION,
-      process.env.REACT_APP_USER_POOL_ID,
+      USER_POOL_ID,
       process.env.REACT_APP_CRYPTO_IDENTITY_POOL_ID )
 
     // IMPORTANT AF:

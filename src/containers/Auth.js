@@ -3,6 +3,7 @@ import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
 import { signIn, approveSignIn, handlePassword } from '../actions/postMessage';
 
+
 export default class Auth extends React.Component {
 
   //
@@ -12,12 +13,22 @@ export default class Auth extends React.Component {
     setGlobal({ email: e.target.value });
   }
 
+  handleCognitoPassword = (e) => {
+    setGlobal({ password: e.target.value })
+  }
+
   handleCode = (e) => {
     setGlobal({ token: e.target.value });
   }
 
   handlePassword = (e, encrypt) => {
     setGlobal({ password: e.target.value, encrypt });
+  }
+
+  suppressDefaultSignIn = (e) => {
+    console.log(`DBG: suppressDefaultSignIn`)
+    e.preventDefault()
+    signIn()
   }
 
   //
@@ -90,8 +101,8 @@ export default class Auth extends React.Component {
     return (
       <div>
         <h5>{theConfig.appName} is protecting you with <mark>SimpleID</mark></h5>
-        {/* 
-        
+        {/*
+
         ////This can be used for eventual scopes an app may want to request. None to handle now, though////
         <p>The following information will be provided to the application if you log in: </p>
         <ul className="text-left">
@@ -141,6 +152,31 @@ export default class Auth extends React.Component {
     )
   }
 
+  renderMessForJustinToFix = () => {
+    return (
+      <div>
+        <h5>Sign Into Your SimpleID Wallet</h5>
+        <p>All you need is an email and password.</p>
+        <Form onSubmit={this.suppressDefaultSignIn}>
+          <Form.Group controlId="formBasicEmail">
+            <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />
+          </Form.Group>
+          <Form.Group controlId="formPassword">
+            <Form.Control onChange={this.handleCognitoPassword} type="password" placeholder="Your password" />
+          </Form.Group>
+          <Form.Text className="text-muted bottom-10">
+            Passwords must be 8 characters and include an uppercase, lowercase, numeric, and special character.
+            If it's your first time using SimpleID, a verification code will be emailed to you.
+          </Form.Text>
+          <Button variant="primary" type="submit">
+            Continue
+          </Button>
+        </Form>
+      </div>
+    )
+
+  }
+
   render = () => {
     const { config, action } = this.global;
 
@@ -159,10 +195,18 @@ export default class Auth extends React.Component {
         containerElements = this.renderEnterPassword()
         break
       case 'sign-in-hosted':
-        containerElements = this.renderEnterEmailHosted()
+        if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
+          containerElements = this.renderMessForJustinToFix()
+        } else {
+          containerElements = this.renderEnterEmailHosted()
+        }
         break;
       default:  // includes 'sign-in' and anything else...
-        containerElements = this.renderEnterEmailHosted(config)
+        if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
+          containerElements = this.renderMessForJustinToFix()
+        } else {
+          containerElements = this.renderEnterEmailHosted(config)
+        }
     }
 
     return (
