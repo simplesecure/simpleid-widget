@@ -59,7 +59,7 @@ export async function signIn() {
     connection.promise.then(parent => {
       const userData = {
         wallet: {
-          ethAddr: walletAddr
+          ethAddr: "walletAddr - COMING SOON" //walletAddr 
         },
         orgId: sid ? sid : null
       }
@@ -107,7 +107,7 @@ export async function handlePassword(e, actionType) {
           const userData = {
             email,
             wallet: {
-              ethAddr: keychain.address
+              ethAddr: "walletAddr - COMING SOON" //keychain.address
             }
           }
           parent.storeWallet(JSON.stringify(userData)).then(() => {
@@ -143,7 +143,7 @@ export async function handlePassword(e, actionType) {
         const userData = {
           email,
           wallet: {
-            ethAddr: parsedDecKeyChain.signingKey.address
+            ethAddr: "walletAddr - COMING SOON"//parsedDecKeyChain.signingKey.address
           }
         }
 
@@ -218,7 +218,7 @@ export async function approveSignIn() {
           const userData = {
             email: "", //TODO: remove this
             wallet: {
-              ethAddr: walletAddr
+              ethAddr: "Wallet Addr Coming Soon"//walletAddr
             },
             orgId: sid ? sid : null
           }
@@ -273,7 +273,7 @@ export async function finishSignUp() {
     const userData = {
       email: "", //TODO: remove this
       wallet: {
-        ethAddr: walletAddr ? walletAddr : "ERROR WITH WALLET"
+        ethAddr: "walletAddr - COMING SOON" //walletAddr ? walletAddr : "ERROR WITH WALLET"
       },
       orgId: sid ? sid : null
     }

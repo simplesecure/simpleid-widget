@@ -171,16 +171,13 @@ export default class Auth extends React.Component {
             <Form.Control onChange={this.handleEmail} type="email" placeholder="your.email@email.com" />
           </Form.Group>
           <Form.Group controlId="formPassword">
-            <Form.Control onChange={this.handleCognitoPassword} type="password" placeholder="Your password" />
-            <span style={{float:"right", color: "#2568EF", cursor: "pointer"}}>
             <OverlayTrigger
-              placement="left"
+              placement="top"
               delay={{ show: 250, hide: 400 }}
               overlay={this.renderTooltip()}
             >
-              <p>?</p>
+              <Form.Control onChange={this.handleCognitoPassword} type="password" placeholder="Your password" />
             </OverlayTrigger>
-            </span>
             <Form.Text className="text-muted">
               If it's your first time using SimpleID, a verification code will be emailed to you.
             </Form.Text>
