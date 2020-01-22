@@ -2,6 +2,8 @@ import React, { setGlobal } from 'reactn';
 import Form from 'react-bootstrap/Form';
 import Button from 'react-bootstrap/Button';
 import { signIn, approveSignIn, handlePassword } from '../actions/postMessage';
+import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
+import Tooltip from 'react-bootstrap/Tooltip'
 
 
 export default class Auth extends React.Component {
@@ -152,7 +154,14 @@ export default class Auth extends React.Component {
     )
   }
 
-  renderMessForJustinToFix = () => {
+  renderTooltip = () => {
+    return (
+      <Tooltip>Passwords must be 8 characters and include an uppercase, lowercase, number, and special character.</Tooltip>
+    )
+
+  }
+
+  renderPasswordFlow = () => {
     return (
       <div>
         <h5>Sign Into Your SimpleID Wallet</h5>
@@ -163,11 +172,19 @@ export default class Auth extends React.Component {
           </Form.Group>
           <Form.Group controlId="formPassword">
             <Form.Control onChange={this.handleCognitoPassword} type="password" placeholder="Your password" />
+            <span style={{float:"right", color: "#2568EF", cursor: "pointer"}}>
+            <OverlayTrigger
+              placement="left"
+              delay={{ show: 250, hide: 400 }}
+              overlay={this.renderTooltip()}
+            >
+              <p>?</p>
+            </OverlayTrigger>
+            </span>
+            <Form.Text className="text-muted">
+              If it's your first time using SimpleID, a verification code will be emailed to you.
+            </Form.Text>
           </Form.Group>
-          <Form.Text className="text-muted bottom-10">
-            Passwords must be 8 characters and include an uppercase, lowercase, numeric, and special character.
-            If it's your first time using SimpleID, a verification code will be emailed to you.
-          </Form.Text>
           <Button variant="primary" type="submit">
             Continue
           </Button>
@@ -196,14 +213,14 @@ export default class Auth extends React.Component {
         break
       case 'sign-in-hosted':
         if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
-          containerElements = this.renderMessForJustinToFix()
+          containerElements = this.renderPasswordFlow()
         } else {
           containerElements = this.renderEnterEmailHosted()
         }
         break;
       default:  // includes 'sign-in' and anything else...
         if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
-          containerElements = this.renderMessForJustinToFix()
+          containerElements = this.renderPasswordFlow()
         } else {
           containerElements = this.renderEnterEmailHosted(config)
         }

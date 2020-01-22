@@ -376,9 +376,20 @@ export class SidServices
           // The error happens if the user didn't finish the confirmation step when signing up
           // In this case you need to resend the code and confirm the user
           // About how to resend the code and confirm the user, please check the signUp part
-          // TODO:
-          console.log(err);
-          throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+          
+          //console.log(err);
+          //throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
+          try {
+            await Auth.resendSignUp(anEmail)
+            this.signUpUserOnConfirm = true
+            this.persist.email = anEmail
+            this.neverPersist.password = aPassword
+            console.log('code resent successfully');
+            return 'sign-in-approval'
+          } catch (ohFuck) {
+            console.log(ohFuck);
+            throw Error(`ERROR: Sign in attempt has failed.\n${ohFuck}`)
+          }
       } else if (err.code === 'PasswordResetRequiredException') {
           // The error happens when the password is reset in the Cognito console
           // In this case you need to call forgotPassword to reset the password

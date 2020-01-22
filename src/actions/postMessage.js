@@ -158,7 +158,7 @@ export async function handlePassword(e, actionType) {
 }
 
 export async function approveSignIn() {
-  const { nonSignInEvent, hostedApp } = getGlobal();
+  const { nonSignInEvent, hostedApp, config } = getGlobal();
   console.log(nonSignInEvent);
   if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     // WARNING:
@@ -197,11 +197,16 @@ export async function approveSignIn() {
     console.log("NON SIGN IN EVENT: ", nonSignInEvent);
     //TODO: @AC needs to review because this might be a place where we are revealing too much to the parent
     if (authenticatedUser && !nonSignInEvent) {
+      let isSimpleIdApp = false
+      if(config.appId === "00000000000000000000000000000000") {
+        isSimpleIdApp = true
+      }
+
       if(hostedApp === true) {
         setGlobal({ showWallet: true, loading: false });
-      } else if(revealMnemonic === true) {
+      } else if(revealMnemonic === true && !isSimpleIdApp) {
         setGlobal({ signUpMnemonicReveal: true, loading: false, showWallet: true });
-      } else if(!revealMnemonic) {
+      } else if(!revealMnemonic || isSimpleIdApp) {
         const connection = connectToParent({
           // Methods child is exposing to parent
           methods: {
