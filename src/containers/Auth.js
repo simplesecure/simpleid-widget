@@ -16,7 +16,14 @@ export default class Auth extends React.Component {
   }
 
   handleCognitoPassword = (e) => {
-    setGlobal({ password: e.target.value })
+    const password = e.target.value;
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
+    const found = password.match(regex);
+    console.log('******************************Bad password entered. Password doesn\'t meet rules', found, Array.isArray(found), password);
+    if (Array.isArray(found)) {
+      console.log("GOOD PASSWORD")
+      setGlobal({ password: e.target.value, found: true });
+    }
   }
 
   handleCode = (e) => {
@@ -24,7 +31,16 @@ export default class Auth extends React.Component {
   }
 
   handlePassword = (e, encrypt) => {
-    setGlobal({ password: e.target.value, encrypt });
+    const password = e.target.value;
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
+    const found = password.match(regex);
+    console.log('******************************Bad password entered. Password doesn\'t meet rules', password);
+    if (found) {
+      setGlobal({ password: e.target.value, encrypt });
+    }
+    else {
+      //todo Justin...throw some sort of error here
+    }
   }
 
   suppressDefaultSignIn = (e) => {
@@ -162,6 +178,7 @@ export default class Auth extends React.Component {
   }
 
   renderPasswordFlow = () => {
+    const { found } = this.global
     return (
       <div>
         <h5>Sign Into Your SimpleID Wallet</h5>
@@ -182,9 +199,15 @@ export default class Auth extends React.Component {
               If it's your first time using SimpleID, a verification code will be emailed to you.
             </Form.Text>
           </Form.Group>
-          <Button variant="primary" type="submit">
-            Continue
-          </Button>
+          {(found) ? (
+            <Button variant="primary" type="submit">
+              Continue
+            </Button>
+          ) :(
+            <Button disabled variant="primary">
+              Continue
+            </Button>
+          )}
         </Form>
       </div>
     )

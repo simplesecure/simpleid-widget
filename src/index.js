@@ -72,7 +72,7 @@ connection.promise.then(parent => {
             parent.close();
             return;
           }
-          
+
         }
       })
     } else if(action === 'hosted-app') {
@@ -137,13 +137,14 @@ setGlobal({
   error: "",
   subaction: "",
   type: "",
-  nonSignInEvent: false, 
-  hostedApp: false, 
-  showWallet: false, 
-  network: 'mainnet', 
-  signUpMnemonicReveal: false, 
-  walletAddr: "", 
-  sid: {}
+  nonSignInEvent: false,
+  hostedApp: false,
+  showWallet: false,
+  network: 'mainnet',
+  signUpMnemonicReveal: false,
+  walletAddr: "",
+  sid: {},
+  found: false
 })
 
 ReactDOM.render(<App />, document.getElementById('root'));
