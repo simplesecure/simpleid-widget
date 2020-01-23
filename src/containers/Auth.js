@@ -19,9 +19,7 @@ export default class Auth extends React.Component {
     const password = e.target.value;
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
     const found = password.match(regex);
-    console.log('******************************Bad password entered. Password doesn\'t meet rules', found, Array.isArray(found), password);
     if (Array.isArray(found)) {
-      console.log("GOOD PASSWORD")
       setGlobal({ password: e.target.value, found: true });
     }
   }
@@ -34,7 +32,6 @@ export default class Auth extends React.Component {
     const password = e.target.value;
     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
     const found = password.match(regex);
-    console.log('******************************Bad password entered. Password doesn\'t meet rules', password);
     if (found) {
       setGlobal({ password: e.target.value, encrypt });
     }
@@ -178,7 +175,7 @@ export default class Auth extends React.Component {
   }
 
   renderPasswordFlow = () => {
-    const { found } = this.global
+    const { found, email } = this.global
     return (
       <div>
         <h5>Sign Into Your SimpleID Wallet</h5>
@@ -199,7 +196,7 @@ export default class Auth extends React.Component {
               If it's your first time using SimpleID, a verification code will be emailed to you.
             </Form.Text>
           </Form.Group>
-          {(found) ? (
+          {(found && email) ? (
             <Button variant="primary" type="submit">
               Continue
             </Button>
