@@ -376,7 +376,7 @@ export class SidServices
           // The error happens if the user didn't finish the confirmation step when signing up
           // In this case you need to resend the code and confirm the user
           // About how to resend the code and confirm the user, please check the signUp part
-          
+
           //console.log(err);
           //throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
           try {
@@ -1199,7 +1199,6 @@ export class SidServices
      // We don't do this in Simple ID.
      return
    }
-
    const { email, address } = userInfo
    this.persist.email = email
    this.persist.address = address
@@ -1213,7 +1212,7 @@ export class SidServices
    //Not all providers will send through the email
    if(email) {
     console.log(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
-    const uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
+    uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
     userExists = (uuidResults.Items.length === 1)
     if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {
      throw new Error('ERROR: collision with user in Simple ID unauth\'d user table.')
