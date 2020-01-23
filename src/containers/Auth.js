@@ -24,7 +24,16 @@ export default class Auth extends React.Component {
   }
 
   handlePassword = (e, encrypt) => {
-    setGlobal({ password: e.target.value, encrypt });
+    const password = e.target.value;
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
+    const found = password.match(regex);
+    console.log('Bad password entered. Password doesn\'t meet rules', password);
+    if (found) {
+      setGlobal({ password: e.target.value, encrypt });
+    }
+    else {
+      //todo Justin...throw some sort of error here
+    }
   }
 
   suppressDefaultSignIn = (e) => {
