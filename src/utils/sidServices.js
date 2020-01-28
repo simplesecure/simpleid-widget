@@ -2,8 +2,6 @@ import { Auth } from 'aws-amplify'
 import Amplify from 'aws-amplify';
 import { getGlobal } from 'reactn';
 
-//import { dbRequestDebugLog } from './dynamoBasics.js'
-
 import { walletAnalyticsDataTablePut,
          walletToUuidMapTablePut,
          organizationDataTableGet,
@@ -20,10 +18,11 @@ import { walletAnalyticsDataTablePut,
          walletAnalyticsDataTableGet,
          walletToUuidMapTableGet } from './dynamoConveniences.js'
 
-import { jsonParseToBuffer,
-         getRandomString } from './misc.js'
+import { jsonParseToBuffer, getRandomString } from './misc.js'
+import { localStorageClearPreserveDebugScopes } from './debugScopes'
 
 
+const log = require('loglevel').getLogger('sidServices')
 
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
@@ -82,10 +81,6 @@ if (PASSWORD_USER_POOL) {
   // Did this instead for the time being:
   //      - https://github.com/aws-amplify/amplify-js/issues/4430
 }
-
-console.log('DBG: Amplify configuration = ')
-console.log(JSON.stringify(amplifyAuthObj, 0, 2))
-console.log('')
 
 Amplify.configure({
   Auth: amplifyAuthObj
@@ -206,7 +201,7 @@ export class SidServices
         this.persist = persistedData
       }
     } catch (suppressedError) {
-      console.log(`WARN: problem recovering persistent data from local storage.\n${suppressedError}`)
+      log.warn(`WARN: problem recovering persistent data from local storage.\n${suppressedError}`)
     }
   }
 
@@ -339,13 +334,13 @@ export class SidServices
 
       this.signUpUserOnConfirm = true
     } catch (error) {
-      console.log(error)
+      log.error(error)
       throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
     }
   }
 
   signInOrUpWithPassword = async(anEmail, aPassword) => {
-    console.log(`DBG: signInOrUpWithPassword e:${anEmail},  p:${aPassword}`)
+    log.debug(`DBG: signInOrUpWithPassword e:${anEmail},  p:<redacted>`)
 
     // TODO: Can we do this here too:
     // const authenticated = await this.isAuthenticated(anEmail)
@@ -368,26 +363,23 @@ export class SidServices
       this.persist.email = anEmail
       return 'finish-passwordless-login'
     } catch (err) {
-      console.log('DBG: signInOrUpWithPassword. Initial sign in attempt failed.')
-      console.log('Error code:', err.code)
-      console.log('Error:', JSON.stringify(err, 0, 2))
-      console.log()
+      log.debug('DBG: signInOrUpWithPassword. Initial sign in attempt failed.')
+      log.debug('Error code:', err.code)
+      log.debug('Error:', JSON.stringify(err, 0, 2))
+
       if (err.code === 'UserNotConfirmedException') {
           // The error happens if the user didn't finish the confirmation step when signing up
           // In this case you need to resend the code and confirm the user
           // About how to resend the code and confirm the user, please check the signUp part
-
-          //console.log(err);
-          //throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
           try {
             await Auth.resendSignUp(anEmail)
             this.signUpUserOnConfirm = true
             this.persist.email = anEmail
             this.neverPersist.password = aPassword
-            console.log('code resent successfully');
+            log.debug('code resent successfully');
             return 'sign-in-approval'
           } catch (ohFuck) {
-            console.log(ohFuck);
+            log.error(ohFuck);
             throw Error(`ERROR: Sign in attempt has failed.\n${ohFuck}`)
           }
       } else if (err.code === 'PasswordResetRequiredException') {
@@ -395,18 +387,18 @@ export class SidServices
           // In this case you need to call forgotPassword to reset the password
           // Please check the Forgot Password part.
           // TODO:
-          console.log(err);
+          log.error(err);
           throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
       } else if (err.code === 'NotAuthorizedException') {
           // The error happens when the incorrect password is provided
           // TODO:
-          console.log(err);
+          log.error(err);
           throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
       } else if (err.code === 'UserNotFoundException') {
           // The error happens when the supplied username/email does not exist in the Cognito user pool
           // DO NOTHING HERE, proceed to try and sign the user up with the provided creds.
       } else {
-          console.log(err);
+          log.error(err);
           throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
       }
     }
@@ -448,7 +440,7 @@ export class SidServices
                                                 // of the signup flow in answerCustomChallenge).
       this.signUpUserOnConfirm = true
     } catch (error) {
-      console.log(error)
+      log.error(error)
       throw Error(`ERROR: Sign up attempt has failed.\n${error}`)
     }
   }
@@ -461,7 +453,7 @@ export class SidServices
     if (this.hostedApp) {
       // For now, if the user is on the hosted wallet page and not in a third parth app
       // We'll clear localStorage and refresh
-      localStorage.clear();
+      localStorageClearPreserveDebugScopes('hosted app, sidServices.js')
       window.location.reload();
     } else {
       try {
@@ -509,7 +501,7 @@ export class SidServices
     let signUpMnemonicReveal = false
 
     if (PASSWORD_USER_POOL) {
-      console.log(`DBG: answerCustomChallenge password flow.`)
+      log.debug(`DBG: answerCustomChallenge password flow.`)
       // TODO: refactor this whole method to make sense if we keep the password flow stuff.
       //       (i.e. split out the common code into names that make more sense etc.).
       //
@@ -517,50 +509,54 @@ export class SidServices
       // otherwise we just run the rest of the flow below this entire conditional
       // block.
       //
-      console.log(`DBG: signUpUserOnConfirm: ${this.signUpUserOnConfirm}`)
+      log.debug(`DBG: signUpUserOnConfirm: ${this.signUpUserOnConfirm}`)
       if (this.signUpUserOnConfirm) {
         // Password Cognito Flow:
         //
         // First send the confirmation code for the email.
         try {
-          console.log(`DBG: calling confirmSignUp ... e:${this.persist.email}, a:${anAnswer}`)
+          log.debug(`DBG: calling confirmSignUp ... e:${this.persist.email}, a:${anAnswer}`)
           await Auth.confirmSignUp(this.persist.email, anAnswer)
-          console.log('  success!')
+          log.debug('  success!')
         } catch (err) {
           // Something went wrong--possibly the confirmation code. TODO: we might
           // need to get them to re-enter it.
-          console.log(`DBG: answerCustomChallenge(password flow) failed.\n${err}`)
+          log.debug(`DBG: answerCustomChallenge(password flow) failed.\n${err}`)
           throw new Error(err)
         }
         // Now sign the user in and proceed with the rest of our flow:
         try {
-          console.log(`DBG: calling signIn ... e:${this.persist.email}, p:${this.neverPersist.password}`)
+          log.debug(`DBG: calling signIn ... e:${this.persist.email}, p:${this.neverPersist.password}`)
           this.cognitoUser = await Auth.signIn(this.persist.email, this.neverPersist.password)
-          console.log('  success!')
+          log.debug('  success!')
         } catch (err) {
-          console.log(`DBG: answerCustomChallenge. Sign in attempt failed.\nError code:${err.code}\nError:${err}`)
+          log.debug(`DBG: answerCustomChallenge. Sign in attempt failed.\nError code:${err.code}\nError:${err}`)
           if (err.code === 'UserNotConfirmedException') {
               // The error happens if the user didn't finish the confirmation step when signing up
               // In this case you need to resend the code and confirm the user
               // About how to resend the code and confirm the user, please check the signUp part
               // TODO:
+              log.error(err)
               throw new Error(err)
           } else if (err.code === 'PasswordResetRequiredException') {
               // The error happens when the password is reset in the Cognito console
               // In this case you need to call forgotPassword to reset the password
               // Please check the Forgot Password part.
               // TODO:
+              log.error(err)
               throw new Error(err)
           } else if (err.code === 'NotAuthorizedException') {
               // The error happens when the incorrect password is provided
               // TODO:
+              log.error(err)
               throw new Error(err)
           } else if (err.code === 'UserNotFoundException') {
               // The error happens when the supplied username/email does not exist in the Cognito user pool
               // TODO:
+              log.error(err)
               throw new Error(err)
           } else {
-              console.log(err);
+              log.error(err)
               throw Error(`ERROR: Sign in attempt has failed.\n${err}`)
           }
         }
@@ -604,7 +600,7 @@ export class SidServices
 
         //  3. Encrypt & store private / secret user data
         //
-        console.log('DBG: encryptWithKmsUsingIdpCredentials ...')
+        log.debug('DBG: encryptWithKmsUsingIdpCredentials ...')
         this.persist.secretCipherText1 =
           await this.encryptWithKmsUsingIdpCredentials(this.keyId1, shares[0])
         this.persist.secretCipherText2 =
@@ -653,13 +649,13 @@ export class SidServices
         }
 
         // Write this to the user data table:
-        console.log('DBG: tablePutWithIdpCredentials ...')
+        log.debug('DBG: tablePutWithIdpCredentials ...')
         await this.tablePutWithIdpCredentials( userDataRow )
 
         //  4. c)  Create and store entry in Wallet to UUID map for this app
         //         (simple_id_wallet_uuid_map_v001)
         //
-        console.log('DBG: walletAnalyticsDataTableGetAppPublicKey ...')
+        log.debug('DBG: walletAnalyticsDataTableGetAppPublicKey ...')
         const appPublicKey =
           await walletAnalyticsDataTableGetAppPublicKey(this.appId)
         const userUuidCipherText =
@@ -673,7 +669,7 @@ export class SidServices
         //
         // TODO: Make this use Cognito to get write permission to the DB (for the
         //       time being we're using an AWS_SECRET):
-        console.log('DBG: walletToUuidMapTablePut ...')
+        log.debug('DBG: walletToUuidMapTablePut ...')
         await walletToUuidMapTablePut(walletUuidMapRow)
 
         //  4. d)  Create and store Wallet Analytics Data
@@ -681,7 +677,7 @@ export class SidServices
         //
         // TODO (Justin+AC): Events of some sort (i.e. sign-in, sign-up, date etc.)
         //
-        console.log('DBG: walletAnalyticsDataTableAddWalletForAnalytics ...')
+        log.debug('DBG: walletAnalyticsDataTableAddWalletForAnalytics ...')
         await walletAnalyticsDataTableAddWalletForAnalytics(
           this.persist.address, this.appId)
 
@@ -741,9 +737,9 @@ export class SidServices
         /* REMOVE Test code when working ****************************************/
         const oldAppId = this.appId
         if (TEST_SIGN_USER_UP_TO_NEW_APP) {
-          console.log('************************ REMOVE WHEN WORKING ***************')
-          console.log('* Faking a new AppId to build signUserUpToNewApp           *')
-          console.log('************************************************************')
+          log.warn('************************ REMOVE WHEN WORKING ***************')
+          log.warn('* Faking a new AppId to build signUserUpToNewApp           *')
+          log.warn('************************************************************')
           this.appId = `new-app-id-random-authd-${Date.now()}`
         }
         // See also: BEGIN REMOVE ~10 lines down
@@ -797,7 +793,7 @@ export class SidServices
         // TODO: obfuscate using static symmetric encryption key SID_SVCS_LS_ENC_KEY
         localStorage.setItem(SID_SVCS_LS_KEY, JSON.stringify(this.persist))
       } catch (suppressedError) {
-        console.log(`ERROR persisting SID services data to local store.\n${suppressedError}`)
+        log.error(`ERROR persisting SID services data to local store.\n${suppressedError}`)
       }
     }
 
@@ -817,7 +813,7 @@ export class SidServices
 
       return true;
     } catch (suppressedError) {
-      console.log(`WARN: Suppressing error in isAuthenticated.\n${suppressedError}`)
+      log.warn(`WARN: Suppressing error in isAuthenticated.\n${suppressedError}`)
       return false;
     }
   }
@@ -829,7 +825,7 @@ export class SidServices
       }
       return await Auth.userAttributes(this.cognitoUser)
     } catch (suppressedError) {
-      console.log(`WARN: Unable to get user details from token.\n${suppressedError}`)
+      log.warn(`WARN: Unable to get user details from token.\n${suppressedError}`)
     }
     return undefined
   }
@@ -841,10 +837,10 @@ export class SidServices
     const keyAssignments = {}
     for (const userAttribute of userAttributes) {
       if (userAttribute.getName() === 'custom:kfa1') {
-        console.log(`returning kfa1: ${userAttribute.getValue()}`)
+        log.debug(`returning kfa1: ${userAttribute.getValue()}`)
         keyAssignments['kfa1'] = userAttribute.getValue()
       } else if (userAttribute.getName() === 'custom:kfa2') {
-        console.log(`returning kfa2: ${userAttribute.getValue()}`)
+        log.debug(`returning kfa2: ${userAttribute.getValue()}`)
         keyAssignments['kfa2'] = userAttribute.getValue()
       }
     }
@@ -945,7 +941,7 @@ export class SidServices
         const emailResults = await userDataTableGetEmailsFromUuid(uuid)
         if (emailResults.Items.length > 0) {
           let email = emailResults.Items[0].email
-          console.log("THIS EMAIL: ", email)
+          log.debug("THIS EMAIL: ", email)
           emails.push(email)
         } else {
           // Try the unauthenticated users table since we didn't find the uuid in
@@ -955,7 +951,7 @@ export class SidServices
           emails.push(email)
         }
       } catch (suppressedError) {
-        console.log(`WARN: Failed to get email for uuid ${uuid}.\n${suppressedError}`)
+        log.warn(`WARN: Failed to get email for uuid ${uuid}.\n${suppressedError}`)
       }
     }
 
@@ -1205,13 +1201,11 @@ export class SidServices
 
    // Check to see if this user exists in Unauthenticated UUID table (email key
    // is also indexed):
-   // console.log('userInfo:')
-   // console.log(JSON.stringify(userInfo, 0, 2))
    let userExists = false
    let uuidResults = undefined
    //Not all providers will send through the email
    if(email) {
-    console.log(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
+    log.debug(`Calling unauthenticatedUuidTableQueryByEmail with ${email}`)
     uuidResults = await unauthenticatedUuidTableQueryByEmail(email)
     userExists = (uuidResults.Items.length === 1)
     if (uuidResults.Items.length !== 0 && uuidResults.Items.length !== 1) {
@@ -1221,7 +1215,7 @@ export class SidServices
     //   TODO: Need AC to review this
     //   Querying the wallet to uuid map because we only have a wallet address here
     const walletResults = await walletToUuidMapTableGet(address)
-    console.log("WALLET RESULTS ", walletResults)
+    log.debug("WALLET RESULTS ", walletResults)
 
     userExists = (walletResults.Items && walletResults.Items.length === 1)
     if (walletResults.Items && walletResults.Items.length !== 0 && walletResults.Items.length !== 1) {
@@ -1286,9 +1280,9 @@ export class SidServices
      // BEGIN REMOVE
      const oldAppId = this.appId
      if (TEST_SIGN_USER_UP_TO_NEW_APP) {
-       console.log('************************ REMOVE WHEN WORKING ***************')
-       console.log('* Faking a new AppId to build signUserUpToNewApp           *')
-       console.log('************************************************************')
+       log.warn('************************ REMOVE WHEN WORKING ***************')
+       log.warn('* Faking a new AppId to build signUserUpToNewApp           *')
+       log.warn('************************************************************')
        this.appId = `new-app-id-random-${Date.now()}`
      }
      // See also: BEGIN REMOVE ~10 lines down
@@ -1349,9 +1343,8 @@ export class SidServices
     //now we put it back into the DB
     await walletAnalyticsDataTablePut(dataRowToUpdate)
   } catch (e) {
-    console.log("Error updating date stamp: ", e)
+    log.error("Error updating date stamp: ", e)
   }
-
  }
 
 /******************************************************************************
@@ -1413,7 +1406,7 @@ export class SidServices
     let NEVER_STORE_sub = undefined
     try {
       NEVER_STORE_sub = AWS.config.credentials.identityId
-      console.log(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
+      log.debug(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
@@ -1461,7 +1454,7 @@ export class SidServices
     let NEVER_STORE_sub = undefined
     try {
       NEVER_STORE_sub = AWS.config.credentials.identityId
-      console.log(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
+      log.debug(`DBG:  DB IDP NEVER_STORE_sub = ${NEVER_STORE_sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
@@ -1514,7 +1507,7 @@ export class SidServices
     let sub = undefined
     try {
       sub = AWS.config.credentials.identityId
-      console.log(`DBG:  DB IDP sub = ${sub}`)
+      log.debug(`DBG:  DB IDP sub = ${sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }
@@ -1555,7 +1548,7 @@ export class SidServices
     let sub = undefined
     try {
       sub = AWS.config.credentials.identityId
-      console.log(`DBG:  DB IDP sub = ${sub}`)
+      log.debug(`DBG:  DB IDP sub = ${sub}`)
     } catch (error) {
       throw Error(`ERROR: getting credential identityId.\n${error}`)
     }

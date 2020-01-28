@@ -8,31 +8,28 @@ const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
 
-export function closeWidget(close) {
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
+const log = require('loglevel').getLogger('postMessage')
 
+export function closeWidget(close) {
+  // TODO: is this even necessary
+  const connection = getEmptyParentConnection()
   connection.promise.then(parent => {
-    parent.close(close).then(() => console.log("Closed"));
+    parent.close(close).then(() => log.debug("Closed"));
   });
 }
 
 export async function signIn() {
   const { nonSignInEvent, action } = getGlobal();
-  console.log("COGNITO FLOW: ", process.env.REACT_APP_COGNITO_FLOW);
-  console.log("COGNITO PASSWORD FLOW:", process.env.REACT_APP_COGNITO_W_PASSWORD)
+  log.debug("COGNITO FLOW: ", process.env.REACT_APP_COGNITO_FLOW);
+  log.debug("COGNITO PASSWORD FLOW:", process.env.REACT_APP_COGNITO_W_PASSWORD)
 
   let signInFlow = undefined
   if (process.env.REACT_APP_COGNITO_W_PASSWORD === "true") {
     setGlobal({ auth: nonSignInEvent ? false : true, action: "loading" });
 
-    console.log('DBG: Attempting to log in to Cognito Using Password Flow')
+    log.debug('DBG: Attempting to log in to Cognito Using Password Flow')
     const { email, password } = await getGlobal()
-    console.log(`DBG:  e:${email},  p:${password}`)
+    log.debug(`DBG:  e:${email},  p:<redacted>`)
     signInFlow = await getSidSvcs().signInOrUpWithPassword(email, password)
   } else {
     // LOL: Old-New AC Flow (Passwordless)
@@ -49,17 +46,13 @@ export async function signIn() {
     //This means a cognito token was still available
     //TODO: If we decide to blow away cognito local storage on sign out, need to revisit this
     //TODO: There's a more efficient way of handling this
-    const connection = connectToParent({
-      // Methods child is exposing to parent
-      methods: {
-        //
-      }
-    });
 
+    // TODO: is this even necessary
+    const connection = getEmptyParentConnection()
     connection.promise.then(parent => {
       const userData = {
         wallet: {
-          ethAddr: "walletAddr - COMING SOON" //walletAddr 
+          ethAddr: "walletAddr - COMING SOON" //walletAddr
         },
         orgId: sid ? sid : null
       }
@@ -84,21 +77,15 @@ export async function handlePassword(e, actionType) {
   if(actionType === "new-auth") {
     //we are encrypting the keychain and storing on the db
     const encryptedKeychain = CryptoJS.AES.encrypt(JSON.stringify(keychain), password);
-    // const decryptedKeychain = CryptoJS.AES.decrypt(encryptedKeychain.toString(), password);
-    // console.log("DECRYPTED: ", decryptedKeychain.toString(CryptoJS.enc.Utf8));
     localStorage.setItem(WIDGET_KEYCHAIN, encryptedKeychain.toString());
     const payload = {
       email,
       encryptedKeychain: encryptedKeychain.toString()
     }
     //now we fire this off to the db
-    const connection = connectToParent({
-      // Methods child is exposing to parent
-      methods: {
-        //
-      }
-    });
 
+    // TODO: is this even necessary
+    const connection = getEmptyParentConnection()
     connection.promise.then(parent => {
       parent.storeKeychain(JSON.stringify(payload)).then((res) => {
         if(res.success) {
@@ -114,7 +101,8 @@ export async function handlePassword(e, actionType) {
             closeWidget(true);
           })
         } else {
-          console.log(res.body);
+          log.error('Failed to store keychain. Result:')
+          log.error(res.body);
         }
       });
     });
@@ -125,20 +113,15 @@ export async function handlePassword(e, actionType) {
     try {
       eKcp = JSON.parse(encryptedKeychain)
     } catch (error) {
-      console.log(error);
+      log.error(error);
     }
     const decryptedKeychain = CryptoJS.AES.decrypt(eKcp, password);
     const parsedDecKeyChain = JSON.parse(decryptedKeychain.toString(CryptoJS.enc.Utf8));
-    //console.log("DECRYPTED KEYCHAIN: ", JSON.parse(decryptedKeychain.toString(CryptoJS.enc.Utf8)));
     setGlobal({ keychain: parsedDecKeyChain });
     if(actionType === "auth") {
-      const connection = connectToParent({
-        // Methods child is exposing to parent
-        methods: {
-          //
-        }
-      });
 
+      // TODO: is this even necessary
+      const connection = getEmptyParentConnection()
       connection.promise.then(parent => {
         const userData = {
           email,
@@ -159,7 +142,7 @@ export async function handlePassword(e, actionType) {
 
 export async function approveSignIn() {
   const { nonSignInEvent, hostedApp, config } = getGlobal();
-  console.log(nonSignInEvent);
+  log.debug(nonSignInEvent);
   if (process.env.REACT_APP_COGNITO_FLOW === 'true') {  // New AC Flow
     // WARNING:
     //  - Do not comment out the line below. For some reason, if you do
@@ -189,12 +172,12 @@ export async function approveSignIn() {
     } catch (error) {
       // TODO: Cognito gives 3 shots at this
       // throw `ERROR: Failed trying to submit or match the code.\n${error}`
-      console.log(`ERROR: Failed trying to submit or match the code:\n`)
-      console.log(error)
+      log.error(`ERROR: Failed trying to submit or match the code:\n`)
+      log.error(error)
     }
 
-    console.log("AUTHENTICATED USER: ", authenticatedUser);
-    console.log("NON SIGN IN EVENT: ", nonSignInEvent);
+    log.debug("AUTHENTICATED USER: ", authenticatedUser);
+    log.debug("NON SIGN IN EVENT: ", nonSignInEvent);
     //TODO: @AC needs to review because this might be a place where we are revealing too much to the parent
     if (authenticatedUser && !nonSignInEvent) {
       let isSimpleIdApp = false
@@ -207,13 +190,9 @@ export async function approveSignIn() {
       } else if(revealMnemonic === true && !isSimpleIdApp) {
         setGlobal({ signUpMnemonicReveal: true, loading: false, showWallet: true });
       } else if(!revealMnemonic || isSimpleIdApp) {
-        const connection = connectToParent({
-          // Methods child is exposing to parent
-          methods: {
-            //
-          }
-        });
 
+        // TODO: is this even necessary
+        const connection = getEmptyParentConnection()
         connection.promise.then(parent => {
           const userData = {
             email: "", //TODO: remove this
@@ -240,20 +219,16 @@ export async function approveSignIn() {
   } else {
     setGlobal({ auth: true, action: "loading" });
     const { email, token } = await getGlobal();
-    const connection = connectToParent({
-      // Methods child is exposing to parent
-      methods: {
-        //
-      }
-    });
 
+    // TODO: is this even necessary
+    const connection = getEmptyParentConnection()
     connection.promise.then(parent => {
       parent.signIn({email, token}).then((res) => {
         if(res === true) {
-          console.log("Success");
+          log.debug("Success");
           closeWidget(true)
         } else {
-          console.log("Failed");
+          log.error("Failed");
         }
       });
     });
@@ -262,13 +237,9 @@ export async function approveSignIn() {
 
 export async function finishSignUp() {
   const { walletAddr, sid } = getGlobal();
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
 
+  // TODO: is this even necessary
+  const connection = getEmptyParentConnection()
   connection.promise.then(parent => {
     const userData = {
       email: "", //TODO: remove this
@@ -292,13 +263,9 @@ export async function generateKeychain() {
 }
 
 export async function getTxDetails() {
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
 
+  // TODO: is this even necessary
+  const connection = getEmptyParentConnection()
   connection.promise.then(parent => {
     parent.getPopUpInfo().then((res) => {
       setGlobal({ txDetails: res });
@@ -307,13 +274,9 @@ export async function getTxDetails() {
 }
 
 export function handleHash(hash) {
-  const connection = connectToParent({
-    // Methods child is exposing to parent
-    methods: {
-      //
-    }
-  });
 
+  // TODO: is this even necessary
+  const connection = getEmptyParentConnection()
   connection.promise.then(parent => {
     parent.displayHash(hash).then(() => {
       closeWidget(false);
@@ -322,7 +285,18 @@ export function handleHash(hash) {
 }
 
 export function returnSignedMessage(signedMsg) {
-  console.log("SIGNED MESSAGE FROM IFRAME");
+  log.debug("SIGNED MESSAGE FROM IFRAME");
+
+  // TODO: is this even necessary
+  const connection = getEmptyParentConnection()
+  connection.promise.then(parent => {
+    parent.signedMessage(signedMsg).then(() => {
+      closeWidget(false);
+    })
+  });
+}
+
+function getEmptyParentConnection() {
   const connection = connectToParent({
     // Methods child is exposing to parent
     methods: {
@@ -330,9 +304,5 @@ export function returnSignedMessage(signedMsg) {
     }
   });
 
-  connection.promise.then(parent => {
-    parent.signedMessage(signedMsg).then(() => {
-      closeWidget(false);
-    })
-  });
+  return connection
 }

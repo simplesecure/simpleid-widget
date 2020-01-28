@@ -6,11 +6,30 @@ import * as serviceWorker from './serviceWorker';
 import connectToParent from 'penpal/lib/connectToParent';
 import { handleData } from './actions/dataProcessing';
 import { signIn } from './actions/postMessage';
+import { configureDebugScopes,
+         localStorageClearPreserveDebugScopes } from './utils/debugScopes'
+
+// Global for interfacing to SID Services
+// TODO: clean up
+// WARNING: cant mix import and export, hence use of require here (webpack issue
+//          see https://github.com/webpack/webpack/issues/4039)
+// TODO: ensure scope is window local (i.e. doesn't leak out of iframe)
+const sidServices = require('./utils/sidServices')
+
+// See this site for usage and logger configuration:
+//   - https://github.com/pimterry/loglevel
+//
+const log = require('loglevel')
+configureDebugScopes()            // Configure default settings for log scopes
 
 const connection = connectToParent({
   // Methods child is exposing to parent
   methods: {
-    //
+    setDebugScopes(theDebugScopes) {
+      log.info('Configuring debug scope overrides ...')
+      const PERSIST_DEBUG_SCOPES=false
+      configureDebugScopes(theDebugScopes, PERSIST_DEBUG_SCOPES)
+    }
   }
 });
 
@@ -35,7 +54,7 @@ connection.promise.then(parent => {
         return;
       }
     } else if(action === 'sign-out') {
-      await localStorage.clear();
+      localStorageClearPreserveDebugScopes('index.js')
       //window.location.reload();
       parent.completeSignOut();
       return;
@@ -97,12 +116,7 @@ connection.promise.then(parent => {
   });
 });
 
-// Global for interfacing to SID Services
-// TODO: clean up
-// WARNING: cant mix import and export, hence use of require here (webpack issue
-//          see https://github.com/webpack/webpack/issues/4039)
-// TODO: ensure scope is window local (i.e. doesn't leak out of iframe)
-const sidServices = require('./utils/sidServices')
+
 let sidSvcs = undefined
 
 console.log('Created global instance of SidServices')
