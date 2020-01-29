@@ -59,7 +59,8 @@ connection.promise.then(parent => {
       parent.completeSignOut();
       return;
     } else if(action === 'sign-in-no-sid') {
-      parent.dataToProcess().then(async (userInfo) => {
+      // parent.dataToProcess().then(async (userInfo) => {
+      parent.userDataToProcess().then(async (userInfo) => {
         const dataToReturn = await getSidSvcs().persistNonSIDUserInfo(userInfo);
         parent.returnProcessedData(dataToReturn);
         parent.close()

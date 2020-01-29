@@ -5,6 +5,8 @@ import { signIn, approveSignIn, handlePassword } from '../actions/postMessage';
 import OverlayTrigger from 'react-bootstrap/OverlayTrigger'
 import Tooltip from 'react-bootstrap/Tooltip'
 
+// eslint-disable-next-line
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g
 
 export default class Auth extends React.Component {
 
@@ -17,10 +19,11 @@ export default class Auth extends React.Component {
 
   handleCognitoPassword = (e) => {
     const password = e.target.value;
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
-    const found = password.match(regex);
+    const found = password.match(PASSWORD_REGEX);
     if (Array.isArray(found)) {
       setGlobal({ password: e.target.value, found: true });
+    } else {
+      setGlobal({ password: e.target.value, found: false });
     }
   }
 
@@ -30,8 +33,7 @@ export default class Auth extends React.Component {
 
   handlePassword = (e, encrypt) => {
     const password = e.target.value;
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])(?=.{8,})/g;
-    const found = password.match(regex);
+    const found = password.match(PASSWORD_REGEX);
     if (found) {
       setGlobal({ password: e.target.value, encrypt });
     }
