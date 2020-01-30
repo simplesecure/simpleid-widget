@@ -4,11 +4,13 @@ import { getSidSvcs } from '../index.js'
 
 import connectToParent from 'penpal/lib/connectToParent';
 import { getGlobal, setGlobal } from 'reactn';
+
+import { getLog } from './../utils/debugScopes'
+const log = getLog('postMessage')
+
 const CryptoJS = require("crypto-js");
 const WIDGET_KEYCHAIN = "widget-keychain";
 const ethers = require('ethers');
-
-const log = require('loglevel').getLogger('postMessage')
 
 export function closeWidget(close) {
   // TODO: is this even necessary
@@ -38,8 +40,8 @@ export async function signIn() {
     signInFlow = await getSidSvcs().signInOrUp(email)
   }
 
-  const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
-  const walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : "";
+  // const sidSvcWalletAddr = getSidSvcs().getWalletAddress()
+  // const walletAddr = sidSvcWalletAddr ? sidSvcWalletAddr : "";
   const sid = getSidSvcs().getSID();
 
   if(signInFlow === 'already-logged-in') {
@@ -236,7 +238,8 @@ export async function approveSignIn() {
 }
 
 export async function finishSignUp() {
-  const { walletAddr, sid } = getGlobal();
+  // const { walletAddr, sid } = getGlobal();
+  const { sid } = getGlobal();
 
   // TODO: is this even necessary
   const connection = getEmptyParentConnection()

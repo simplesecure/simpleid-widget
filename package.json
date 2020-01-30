@@ -13,6 +13,7 @@
     "ethers": "^4.0.40",
     "fs": "0.0.1-security",
     "loglevel": "^1.6.6",
+    "loglevel-plugin-prefix": "^0.8.4",
     "penpal": "^4.1.1",
     "react": "^16.12.0",
     "react-bootstrap": "^1.0.0-beta.16",

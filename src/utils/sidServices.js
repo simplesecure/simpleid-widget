@@ -21,8 +21,8 @@ import { walletAnalyticsDataTablePut,
 import { jsonParseToBuffer, getRandomString } from './misc.js'
 import { localStorageClearPreserveDebugScopes } from './debugScopes'
 
-
-const log = require('loglevel').getLogger('sidServices')
+import { getLog } from './../utils/debugScopes'
+const log = getLog('sidServices')
 
 const AWS = require('aws-sdk')
 const ethers = require('ethers')
@@ -201,7 +201,7 @@ export class SidServices
         this.persist = persistedData
       }
     } catch (suppressedError) {
-      log.warn(`WARN: problem recovering persistent data from local storage.\n${suppressedError}`)
+      log.info(`Unable to recover session data from local storage.\n${suppressedError}`)
     }
   }
 
@@ -1191,6 +1191,7 @@ export class SidServices
  ******************************************************************************/
 
  persistNonSIDUserInfo = async (userInfo) => {
+
    if (this.appIsSimpleId) {
      // We don't do this in Simple ID.
      return

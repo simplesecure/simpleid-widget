@@ -93,8 +93,6 @@ export async function tableBatchGet(aTable, anArrOfKeyValuePairs) {
       }
     }
 
-    dbRequestDebugLog('tableBatchGet', params, `No error.\nProcessing [${startIndex} : ${endIndex}) of ${numItems} elements.`)
-
     try {
       const result = await new Promise(
         (resolve, reject) => {

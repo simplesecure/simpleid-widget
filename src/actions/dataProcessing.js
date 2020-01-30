@@ -2,14 +2,17 @@ import { getGlobal } from 'reactn';
 import { closeWidget } from './postMessage';
 import { walletAnalyticsDataTableGet, organizationDataTableGet, walletAnalyticsDataTablePut, organizationDataTablePut } from '../utils/dynamoConveniences';
 import { getSidSvcs } from '../index';
+
+import { getLog } from './../utils/debugScopes'
+const log = getLog('dataProcessing')
+
 const rp = require('request-promise');
 const ethers = require('ethers');
 
-const log = require('loglevel').getLogger('dataProcessing')
 
 const ALETHIO_KEY = process.env.REACT_APP_ALETHIO_KEY;
 const rootUrl = `https://api.aleth.io/v1`;
-const rootEmailServiceUrl = 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1' //!process.env.NODE_ENV === 'production' ? 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1/v1/email' : 'http://localhost:3000' //This should be an env variable
+const ROOT_EMAIL_SERVICE_URL = 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1' //!process.env.NODE_ENV === 'production' ? 'https://cnv69peos0.execute-api.us-west-2.amazonaws.com/e1/v1/email' : 'http://localhost:3000' //This should be an env variable
 const headers = { Authorization: `Bearer ${ALETHIO_KEY}`, 'Content-Type': 'application/json' }
 let addresses = []
 export async function handleData(dataToProcess) {
@@ -108,13 +111,17 @@ export async function handleData(dataToProcess) {
     //Data should include the following:
     //const { addresses, app_id, template, subject } = data;
     //Commented out because we don't need each individual item separately
-    log.debug(data);
+    log.info(`handleData ${type} ...`)
     const { template, subject, from } = data
+    if (!template || !subject || !from) {
+      throw new Error('Email messaging expects the template, subject, and from address to be defined.')
+    }
+
     let uuidList = undefined
     try {
       uuidList = await getSidSvcs().getUuidsForWalletAddresses(data)
     } catch(e) {
-      log.error("UUID ERROR: ", e)
+      log.error("Error fetching list of uuids for wallet addresses: ", e)
     }
 
     //Now we need to take this list and fetch the emails for the users
@@ -124,9 +131,10 @@ export async function handleData(dataToProcess) {
       subject,
       from
     }
+
     //Once we have the emails, send them to the email service lambda with the template
-    const sendEmails = await handleEmails(dataForEmailService, rootEmailServiceUrl)
-    log.debug("FROM THE SERVER: ", sendEmails)
+    const sendEmails = await handleEmails(dataForEmailService, ROOT_EMAIL_SERVICE_URL)
+
     //When we finally finish this function, we'll need to return a success indicator rather than a list of anything
     //   TODO: check for status code not a string.
     return sendEmails
@@ -409,6 +417,8 @@ export async function tokenFetch(url) {
 
 //Probably don't want to keep this here
 export async function handleEmails(data, url) {
+  log.debug(`handleEmails called ...`)
+
   const route = '/v1/email'
   const options = {
     method: 'POST',
@@ -417,6 +427,7 @@ export async function handleEmails(data, url) {
     body: data,
     json: true
   }
+
   return rp(options)
   .then(async function (parsedBody) {
     return parsedBody

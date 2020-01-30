@@ -13,10 +13,6 @@ import Approve from './containers/Approve';
 import Modal from 'react-bootstrap/Modal';
 
 export default class App extends React.Component {
-  async componentDidMount() {
-
-  }
-
   componentWillUnmount() {
     setGlobal({
       auth: true,

@@ -2,6 +2,7 @@
 //   - https://github.com/pimterry/loglevel
 //
 const log = require('loglevel')
+const prefix = require('loglevel-plugin-prefix');
 
 const ROOT_KEY = 'loglevel'
 const ALLOWED_SCOPES = [ ROOT_KEY,
@@ -11,6 +12,38 @@ const ALLOWED_SCOPES = [ ROOT_KEY,
 const ALLOWED_LEVELS = [ 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR' ]
 const DEFAULT_LOG_LEVEL="INFO"
 
+
+function configureLogPrefix(aLog) {
+  prefix.apply(aLog, {
+    format(level, name, timestamp) {
+      const moduleName = (name !== 'root') ?
+        ` (${name})` : ''
+      return `${level}${moduleName}:`;
+    },
+  })
+}
+
+prefix.reg(log)
+configureLogPrefix(log)
+
+/**
+ *  getLog:
+ *
+ *    Returns a logger configured with our prefixes etc.
+ *
+ *  TODO:
+ *    - Do we need to track calls to this to prevent duplicate reg/apply calls?
+ *
+ */
+export function getLog(logName=undefined) {
+   let theLog = log
+   if (logName) {
+     theLog = log.getLogger(logName)
+     configureLogPrefix(theLog)
+   }
+
+   return theLog
+ }
 
 /**
  *  configureDebugScopes:
